@@ -1,0 +1,36 @@
+# ---- Data: never commit. Assignment Q8 forbids large files in git. ----
+data/
+*.zip
+*.tsv
+*.parquet
+*.vec
+
+# ---- Model artefacts ----
+*.pt
+*.ckpt
+*.bin
+*.safetensors
+*.faiss
+*.index
+
+# ---- Generated predictions & submissions ----
+submissions/
+*_prediction.txt
+predictions.txt
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# ---- Editors / OS ----
+.vscode/
+.idea/
+.DS_Store
+
+# ---- Keep these despite the rules above ----
+!reports/figures/*.png
