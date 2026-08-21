@@ -170,4 +170,41 @@ training or feature computation for an earlier-timestamped example. Must be stru
 prevented, not just avoided by convention — Q9 requires an automated test
 (`tests/test_no_leakage.py`) asserting it cannot happen.
 
-_Phase 1 terms appear here once taught._
+---
+
+### Phase 1
+
+#### Unified schema
+**Plain:** Translating both companies' paperwork into one common form before any
+downstream process touches it, so nothing has to special-case "which company is this."
+
+**Technical:** A small, fixed set of tables (articles, impressions, click-history) with
+consistent column names and types that both MIND and EB-NeRD get transformed into during
+ingestion. A superset schema — columns unique to one dataset (sentiment, body text,
+entity embeddings) are kept and simply null for the other, not discarded. Confirmed
+structural differences requiring translation: MIND's `impressions` string
+(`"N55689-1 N35729-0"`) must split into candidate-list + clicked-list to match
+EB-NeRD's already-split `article_ids_inview` / `article_ids_clicked`; MIND's inline
+per-impression `history` string must collapse to one-row-per-user to match EB-NeRD's
+`history.parquet`. [[retrieval-vs-re-ranking]]
+
+---
+
+#### TSV (Tab-Separated Values)
+**Plain:** A plain-text table, one row per line, columns separated by tab characters —
+no type information, often no header row.
+
+**Technical:** MIND's file format. `behaviors.tsv` and `news.tsv` have **no header row**;
+column names/types are supplied externally by the reading code, not stored in the file.
+
+---
+
+#### Parquet
+**Plain:** A compressed, typed table file that remembers its own column names and types,
+and lets you read just the columns you need without loading the whole file.
+
+**Technical:** EB-NeRD's file format — columnar, binary, self-describing schema. Enables
+`pl.scan_parquet` lazy scanning and per-row-group batch reads, which is how the 12M+ row
+EB-NeRD-large behaviors file is explored/processed without exhausting RAM.
+
+_Phase 2 terms appear here once taught._
