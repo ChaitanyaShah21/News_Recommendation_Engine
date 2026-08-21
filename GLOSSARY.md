@@ -58,4 +58,116 @@ grade retrieval, the leaderboards grade re-ranking.
 
 ## Terms added per phase
 
+### Phase 0
+
+#### BM25 (Best Match 25)
+**Plain:** A card-catalog search: count how many of the query's words appear in a
+document, but give more credit for rare, distinctive words than common ones, and
+discount very long documents so they don't win just by containing more words.
+
+**Technical:** A ranking function scoring document relevance to a query by combining
+term frequency (how often each query term appears in the document), inverse document
+frequency (how rare that term is across the whole corpus — rarer terms score higher),
+and document-length normalisation. Purely lexical: matches surface word forms, blind to
+synonymy. Used in Q2.
+
+---
+
+#### Embedding
+**Plain:** A librarian who has read every article and can place two articles near each
+other on a map if they're about similar things — even if they don't share a single word.
+
+**Technical:** A dense numeric vector representation of text (or other data) such that
+semantically similar inputs map to nearby points in the vector space. Computed by a
+model (Word2Vec, BERT, XLM-RoBERTa) or provided pre-computed (EB-NeRD ships article
+embeddings). Used in Q3.
+
+---
+
+#### ANN (Approximate Nearest Neighbour) index
+**Plain:** Instead of comparing a query to every single article on the shelf one by one
+to find the closest matches, use a shortcut structure that finds ones that are *close
+enough*, fast, and almost always correct.
+
+**Technical:** A data structure/algorithm (e.g. FAISS, ScaNN) for retrieving vectors
+near a query vector in high-dimensional space without the cost of an exhaustive
+brute-force comparison against every stored vector. Trades a small amount of accuracy
+for large speed gains at scale. Used in Q3 to search article embeddings.
+
+---
+
+#### Recall@K
+**Plain:** Of all the articles the person actually went on to read, what fraction showed
+up somewhere in your shortlist of K candidates — regardless of where in that list?
+
+**Technical:** `(# ground-truth positives present in the top-K retrieved set) / (# ground-truth
+positives total)`. Order-blind within the top-K: only presence counts. Reported for
+K ∈ {50, 100, 200} in Q2 and Q3.
+
+---
+
+#### AUC (Area Under the Curve)
+**Plain:** If you pick one article the person clicked and one they didn't, how often does
+your model correctly rank the clicked one higher?
+
+**Technical:** Area under the ROC (Receiver Operating Characteristic) curve; equivalent
+to the probability a randomly chosen positive is ranked above a randomly chosen negative.
+Used in Q4 as an overall ranking-quality metric.
+
+---
+
+#### MRR (Mean Reciprocal Rank)
+**Plain:** How close to the very top of the list did the first correct answer land,
+averaged across all users? Landing it at #1 scores much better than #10.
+
+**Technical:** For each query, `1 / rank of first relevant item`; averaged across all
+queries. Sensitive to *order*, unlike recall@K. Used in Q4.
+
+---
+
+#### nDCG@k (normalised Discounted Cumulative Gain at k)
+**Plain:** A score for how good the top-k results are overall — correct answers near the
+top count a lot, the same correct answer buried near the bottom of the top-k counts for
+much less.
+
+**Technical:** Discounted Cumulative Gain sums relevance scores of the top-k results,
+each divided by a logarithmic discount of its rank position; normalised by the DCG of
+the ideal (perfectly sorted) ordering, giving a score in [0, 1]. Reported at k = 5 and
+k = 10 in Q4.
+
+---
+
+#### Bootstrap confidence interval
+**Plain:** Resample your set of users (with replacement) many times, recompute the
+metric each time, and look at the spread of results — that spread tells you how much the
+score might have wobbled if you'd tested on a slightly different group of users.
+
+**Technical:** A non-parametric method for estimating a statistic's sampling
+distribution by repeated resampling (with replacement) of the observed data; the 2.5th
+and 97.5th percentiles of the resulting distribution give a 95% confidence interval.
+Required alongside every Q4 metric.
+
+---
+
+#### Cold-start user
+**Plain:** A brand-new reader with little or no history to go on — hard to personalise
+for because there's nothing to learn from yet.
+
+**Technical:** A user with few or no prior interactions in the click-history window,
+contrasted with "warm" users who have substantial history. One of the required Q4
+evaluation slices.
+
+---
+
+#### Temporal leakage
+**Plain:** Accidentally letting the model peek at tomorrow's newspaper sales while
+deciding today's — makes an offline test look better than the system would actually
+perform in production.
+
+**Technical:** Any situation where information from after the prediction timestamp
+(e.g. a future click, a feature computed over a window including future events) enters
+training or feature computation for an earlier-timestamped example. Must be structurally
+prevented, not just avoided by convention — Q9 requires an automated test
+(`tests/test_no_leakage.py`) asserting it cannot happen.
+
 _Phase 1 terms appear here once taught._
