@@ -1,0 +1,7 @@
+# Pinned so `pip install -r requirements.txt` reproduces the exact environment
+# this pipeline was built and tested against (Python 3.12.3, WSL2, no GPU).
+# Add new packages here as later phases need them - never install ad hoc
+# without recording the version, or "one command rebuild" (Q1.5) silently rots.
+
+polars==1.43.2      # DataFrame library - matches the version in the provided notebooks
+pyarrow==25.0.1      # Parquet reading; also what polars uses under the hood for parquet

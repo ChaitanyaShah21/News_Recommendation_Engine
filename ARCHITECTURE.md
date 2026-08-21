@@ -150,4 +150,23 @@ something actually requires them).
 
 ---
 
+### D4 — venv + requirements.txt for dependency management
+**Date:** 2026-08-21 · **Decided by:** Chaitanya
+
+**Chosen:** Standard library `venv`, dependencies pinned in `requirements.txt`.
+
+**Alternatives rejected:**
+- *Poetry + pyproject.toml.* Better lockfile guarantees, but adds a tool prerequisite
+  (installing Poetry itself) before Q1.5's one-command rebuild can even start.
+- *conda/environment.yml.* Better for non-Python binary/CUDA dependencies, but there's
+  no GPU locally and nothing here needs conda's package resolution.
+
+**Why:** Simplest path to Q1.5's "one command rebuild" — works anywhere Python does,
+no extra tooling. `.venv/` is gitignored; `requirements.txt` is the only committed
+artefact. Pinned exact versions (`polars==1.43.2`, `pyarrow==25.0.1`) — polars matches
+the version already used in the provided notebooks, confirmed by installing it and
+checking `pl.__version__`.
+
+---
+
 _Further decisions appended as they are made._
