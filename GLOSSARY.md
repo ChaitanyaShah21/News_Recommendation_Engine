@@ -207,4 +207,33 @@ and lets you read just the columns you need without loading the whole file.
 `pl.scan_parquet` lazy scanning and per-row-group batch reads, which is how the 12M+ row
 EB-NeRD-large behaviors file is explored/processed without exhausting RAM.
 
+---
+
+#### Polars expression (`pl.col`, `pl.lit`, `.alias`)
+**Plain:** A small, reusable instruction for "how to compute one column" — Polars only
+actually runs it once it reaches the end of a `.select()`/`.with_columns()` call, rather
+than computing each piece the instant you write it.
+
+**Technical:** `pl.col("x")` references an existing column unchanged. `pl.lit(v)`
+creates a column repeating a fixed value (or `None`) on every row, independent of any
+existing column. `.alias("name")` renames whatever expression precedes it. Chained
+together inside `.select(...)`, these are how `ingest_mind.py` builds the unified
+`articles` schema column by column, including dataset-prefixing IDs
+(`(pl.lit("mind:") + pl.col("article_id")).alias("article_id")`) and null-padding
+columns MIND doesn't have (`pl.lit(None, dtype=pl.Utf8).alias("body")`).
+
+---
+
+#### Eager vs. lazy evaluation
+**Plain:** Eager is doing each instruction the moment you give it, one at a time. Lazy
+is handing over the *whole list* of instructions first, letting a planner figure out the
+smartest order and which parts to skip, and only then actually doing the work.
+
+**Technical:** `pl.read_csv(...)` and plain `pl.read_parquet(...)` are eager — they load
+data into memory immediately. `pl.scan_parquet(...)` is lazy — it returns a query plan
+(`LazyFrame`) that isn't executed until `.collect()` is called, letting Polars' query
+optimizer decide what to actually compute. Used eagerly for MIND (small enough to load
+directly) and lazily for EB-NeRD-large in the provided notebook (12M+ row files that
+don't fit comfortably in 7 GB RAM).
+
 _Phase 2 terms appear here once taught._

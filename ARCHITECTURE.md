@@ -169,4 +169,23 @@ checking `pl.__version__`.
 
 ---
 
+### D5 — Polars over pandas for all DataFrame work
+**Date:** 2026-08-22 · **Decided by:** inherited from constraints, confirmed with Chaitanya
+
+**Chosen:** Polars everywhere — no pandas dependency anywhere in `src/newsrec/`.
+
+**Alternatives rejected:**
+- *pandas.* The default choice for most people's first exposure to DataFrames, but
+  single-threaded and eager-only. EB-NeRD-large's behaviors file has 12M+ rows on our
+  7 GB RAM, no-GPU machine (`system design contract` environment facts) — pandas would need careful
+  manual chunking to avoid exhausting memory, where Polars' `.lazy()` / `scan_parquet`
+  does it by default.
+
+**Why:** Not really an open fork — the assignment spec itself says "ensure your
+prediction pipeline is memory-efficient (use Polars, PyArrow, or batch processing)," and
+both provided notebooks already use Polars exclusively. Logged here for completeness
+since it wasn't written down explicitly until asked about directly.
+
+---
+
 _Further decisions appended as they are made._
