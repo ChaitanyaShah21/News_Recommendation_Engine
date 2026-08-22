@@ -271,4 +271,28 @@ day, 4-digit year, 12-hour clock hour, minute, second, AM/PM marker. Turning tim
 into real `Datetime` values (not strings) is what later makes the Q1.3 temporal split
 possible — you can't reliably compare "is this before that" on text.
 
+---
+
+#### `.unique(subset=..., keep=...)`
+**Plain:** Keep only one row per distinct value in a chosen column, throwing the rest
+away — like collapsing a stack of duplicate library cards for the same person into one.
+
+**Technical:** `.unique(subset="user_id", keep="first")` deduplicates rows by `user_id`,
+keeping the first occurrence of each. Used in `ingest_mind.load_history` to collapse
+MIND's repeated per-impression history rows into one row per user — safe here
+specifically because R10 verified every row for a given user carries an identical
+`history` string, so *which* row survives doesn't affect the result.
+
+---
+
+#### `.fill_null(value)`
+**Plain:** Replace every "we don't know" with a specific, usable stand-in value, so
+nothing downstream has to keep asking "wait, is this null?"
+
+**Technical:** Replaces every null in a column with `value`. `ingest_mind.load_history`
+uses `.fill_null([])` to turn a cold-start user's null history (an artefact of
+`.str.split()` propagating null rather than returning an empty list — the exact scenario
+`system design contract`'s R9 example is built around) into a genuine empty list, so every downstream
+caller can safely call `.list.len()` without a separate cold-start check every time.
+
 _Phase 2 terms appear here once taught._

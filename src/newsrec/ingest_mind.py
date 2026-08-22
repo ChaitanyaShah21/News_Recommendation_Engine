@@ -114,3 +114,46 @@ def load_behaviors(behaviors_tsv_path: Path) -> pl.DataFrame:
         pl.lit(None, dtype=pl.Int64).alias("device_type"),
         pl.lit(None, dtype=pl.Utf8).alias("session_id"),
     )
+
+
+def load_history(behaviors_tsv_path: Path) -> pl.DataFrame:
+    """Read one MIND behaviors.tsv file, collapse repeated per-impression history
+    strings down to one row per user, return in the unified `history` schema.
+
+    Verified (R10) before writing this: every MIND user's history string is
+    identical across all of their impression rows in the same file - 0 of
+    33,617 multi-row users in MINDsmall_train had more than one distinct
+    history string - so keeping just the first row per user loses nothing.
+    """
+    behaviors = pl.read_csv(
+        behaviors_tsv_path,
+        separator="\t",
+        has_header=False,
+        quote_char=None,
+        new_columns=BEHAVIOR_COLS,
+        schema_overrides={
+            "impression_id": pl.Int64,
+            "history": pl.Utf8,
+            "impressions": pl.Utf8,
+        },
+    )
+
+    one_row_per_user = behaviors.select("user_id", "history").unique(
+        subset="user_id", keep="first"
+    )
+
+    # Cold-start users (~2.1% of MIND rows) have a null `history` field.
+    # .str.split() on null stays null rather than becoming an empty list -
+    # verified this above. fill_null([]) makes it a real empty list, so
+    # every downstream caller can safely do things like .list.len() without
+    # a separate null-check for cold-start users every single time.
+    history_lists = pl.col("history").str.split(" ").fill_null([])
+
+    return one_row_per_user.select(
+        pl.lit("mind").alias("dataset"),
+        (pl.lit("mind:") + pl.col("user_id")).alias("user_id"),
+        history_lists.list.eval(
+            pl.lit("mind:") + pl.element()
+        ).alias("history_article_ids"),
+        pl.lit(None, dtype=pl.List(pl.Datetime)).alias("history_timestamps"),
+    )
