@@ -236,4 +236,39 @@ optimizer decide what to actually compute. Used eagerly for MIND (small enough t
 directly) and lazily for EB-NeRD-large in the provided notebook (12M+ row files that
 don't fit comfortably in 7 GB RAM).
 
+---
+
+#### `.list.eval()` and `pl.element()`
+**Plain:** A mini for-loop that runs one instruction on every item inside each row's
+list, individually — `pl.element()` is "the current item," the way a loop variable
+stands for the current item in a plain Python `for` loop.
+
+**Technical:** `.list.eval(expr)` applies `expr` to every element of a list column,
+row-wise; `pl.element()` inside that expression refers to the element being processed.
+Composable and chainable — `ingest_mind.load_behaviors` uses one pass to filter tokens
+(`.filter(pl.element().str.ends_with("-1"))`) and a second to transform the survivors
+(strip suffix, add dataset prefix), rather than combining both into one dense expression.
+
+---
+
+#### Regex (regular expression)
+**Plain:** A pattern language for describing "text that looks like this," so you can
+find or replace it without listing every exact string it might be.
+
+**Technical:** `r"-[01]$"` means: a literal `-`, then either `0` or `1`, anchored to the
+end of the string (`$`). Used in `.str.replace(r"-[01]$", "")` to strip MIND's click-label
+suffix. Verified against real data (R10) that every token matches this pattern exactly,
+so it can't accidentally strip something that isn't the intended suffix.
+
+---
+
+#### strptime format string
+**Plain:** A template describing how a date/time is written as text, so it can be turned
+into an actual, comparable date value instead of staying a string.
+
+**Technical:** `%m/%d/%Y %I:%M:%S %p` decodes MIND's `"11/11/2019 9:05:58 AM"` — month,
+day, 4-digit year, 12-hour clock hour, minute, second, AM/PM marker. Turning timestamps
+into real `Datetime` values (not strings) is what later makes the Q1.3 temporal split
+possible — you can't reliably compare "is this before that" on text.
+
 _Phase 2 terms appear here once taught._
