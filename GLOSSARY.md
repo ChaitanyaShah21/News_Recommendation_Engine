@@ -321,4 +321,16 @@ at the end keeps the *return type* (`DataFrame`) consistent with `ingest_mind.py
 eager functions — full memory-safe batched processing at 12M+ rows is still a Phase 5
 concern this alone doesn't solve.
 
+---
+
+#### `pl.when().then().otherwise()`
+**Plain:** A row-by-row if/else that produces a whole column at once — "if this
+condition holds for this row, use value A, otherwise value B," for every row
+simultaneously, rather than looping row by row.
+
+**Technical:** `pl.when(condition).then(value_if_true).otherwise(value_if_false)`
+builds a conditional expression. Used in `temporal_split.add_impressions_split` to tag
+each dev/validation row `"val"` or `"test"` depending on whether its `timestamp` falls
+before or after the computed cutoff.
+
 _Phase 2 terms appear here once taught._

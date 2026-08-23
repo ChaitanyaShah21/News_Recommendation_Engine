@@ -211,4 +211,56 @@ because this distinction wasn't discovered until inspecting real EB-NeRD data di
 
 ---
 
+### D7 — Carve the test partition from dev/validation's tail, not train's
+**Date:** 2026-08-22 · **Decided by:** Chaitanya
+
+**Chosen:** Neither dataset provides three labeled partitions at demo/small scale
+(verified: MIND-small is train Nov 9–14 + dev Nov 15 only; EB-NeRD-demo is train
+May 18–25 + validation May 25–Jun 1 only — both large-bundle test sets exist but are
+unlabeled, Codabench-submission-only). Train stays fully intact; dev/validation gets
+split into val + test.
+
+**Alternatives rejected:**
+- *Carve test from train's tail instead.* Leakage-safety is identical either way — the
+  choice doesn't affect correctness, only which partition shrinks. Shrinks train (the
+  larger, more valuable-for-indexing partition) and requires re-splitting the file we'd
+  otherwise leave untouched.
+- *Skip a local test split entirely*, using validation for both tuning and final
+  reporting. Doesn't satisfy Q1.3's literal "train/val/test" requirement, and repeatedly
+  looking at the same validation numbers while tuning is a soft form of leakage through
+  human decisions, not the model's.
+
+**Why:** Maximizes train's data (BM25 index / retrieval quality depends on it directly),
+touches only one file per dataset.
+
+### D8 — 70/30 row-count split for the val/test cutoff, uniform across datasets
+**Date:** 2026-08-22 · **Decided by:** Chaitanya
+
+**Chosen:** Sort the dev/validation partition by timestamp; the earliest 70% of rows
+become val, the latest 30% become test — same rule for both datasets.
+
+**Alternatives rejected:**
+- *50/50 split.* Leaves validation smaller relative to test than is typical — validation
+  gets used repeatedly during tuning, test only once, so it usually deserves the larger
+  share.
+- *Day-count based per dataset* (e.g. "last 2 of 7 days" for EB-NeRD, matching the
+  assignment's literal example phrasing). Doesn't apply evenly: MIND's dev is a single
+  day, so it would still fall back to a percentile split anyway — two methods to justify
+  instead of one.
+
+**Why:** One rule, adapts automatically regardless of whether the partition spans 1 day
+or 7. Verified against real data: MIND lands at exactly 70.0% val, EB-NeRD at 70.0% val,
+and the core invariant (`train_max < val_min < val_max < test_min`) holds strictly for
+both — this same check is the seed of the Q9 leakage test.
+
+**Related finding, not a separate decision:** EB-NeRD's `train/history.parquet` and
+`validation/history.parquet` genuinely differ per user (verified: user `95507`'s history
+length is 370 in train's file, 326 in validation's — not the same data re-served). Since
+val and test are both carved from the *same* validation file, both reuse that file's
+history table unchanged (`temporal_split.add_history_split`) — the only snapshot
+available at that granularity, and reusing it doesn't leak anything since it predates
+the entire validation window, val and test both included.
+
+---
+
 _Further decisions appended as they are made._
