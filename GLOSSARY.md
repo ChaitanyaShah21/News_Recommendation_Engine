@@ -333,4 +333,19 @@ builds a conditional expression. Used in `temporal_split.add_impressions_split` 
 each dev/validation row `"val"` or `"test"` depending on whether its `timestamp` falls
 before or after the computed cutoff.
 
+---
+
+#### Feature store
+**Plain:** A prep fridge for data — clean, ready-to-use tables computed once and stored,
+so every later script grabs what it needs instead of re-washing the lettuce (re-parsing
+raw files) every single time it runs.
+
+**Technical:** The unified-schema tables, computed by ingestion + the temporal split,
+persisted to `data/processed/` as Parquet (D9: three combined files —
+`articles.parquet`, `impressions.parquet`, `history.parquet` — both datasets together,
+filtered by the existing `dataset`/`split` columns). Read directly by Q2/Q3/Q4 instead
+of recomputed from raw files each time. Carries a real risk — staleness: if ingestion
+code changes but the store isn't rebuilt, downstream code silently reads outdated data —
+which is exactly why Q1.5's one-command rebuild matters, not just as a convenience.
+
 _Phase 2 terms appear here once taught._

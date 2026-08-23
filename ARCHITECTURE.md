@@ -263,4 +263,25 @@ the entire validation window, val and test both included.
 
 ---
 
+### D9 — Feature store: 3 combined files, not per-dataset or per-split
+**Date:** 2026-08-22 · **Decided by:** Chaitanya
+
+**Chosen:** `data/processed/{articles,impressions,history}.parquet` — both datasets
+combined per table, filtered downstream by the existing `dataset` column;
+impressions/history already carry the `split` column from Q1.3.
+
+**Alternatives rejected:**
+- *6 files, one per dataset per table.* Keeps datasets fully separate on disk, but Q2/Q3
+  retrieval is built per-dataset either way (a `.filter()` on a combined file is cheap),
+  so this buys nothing beyond more paths to manage.
+- *Partitioned by split too* (train/val/test as separate files). A real efficiency win
+  at EB-NeRD-large's 12M+ row scale, but premature now — everything fits comfortably in
+  memory at demo scale, and `pl.scan_parquet` + `.filter()` gets most of the same benefit
+  without extra files. Revisit in Phase 5 if the large bundle needs it.
+
+**Why:** Matches what Q1.3 already empirically verified concatenates cleanly. Simplest,
+matches Q1.4's "small store" wording.
+
+---
+
 _Further decisions appended as they are made._
