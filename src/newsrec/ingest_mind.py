@@ -43,7 +43,12 @@ def load_articles(news_tsv_path: Path) -> pl.DataFrame:
         pl.col("abstract"),
         pl.lit(None, dtype=pl.Utf8).alias("body"),
         pl.col("category"),
-        pl.col("subcategory"),
+        # A list of one, not a bare string: EB-NeRD's subcategory is
+        # multi-valued (a list of codes), so this column's type has to be
+        # list[str] on both sides for the two `articles` tables to combine
+        # cleanly later. concat_list([single_col]) wraps a scalar into a
+        # 1-element list, same trick used for entities_raw below.
+        pl.concat_list([pl.col("subcategory")]).alias("subcategory"),
         pl.lit(None, dtype=pl.Datetime).alias("published_time"),
         pl.lit(None, dtype=pl.Float64).alias("sentiment_score"),
         pl.lit(None, dtype=pl.Utf8).alias("sentiment_label"),

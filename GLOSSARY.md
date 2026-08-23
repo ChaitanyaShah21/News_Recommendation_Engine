@@ -295,4 +295,30 @@ uses `.fill_null([])` to turn a cold-start user's null history (an artefact of
 `system design contract`'s R9 example is built around) into a genuine empty list, so every downstream
 caller can safely call `.list.len()` without a separate cold-start check every time.
 
+---
+
+#### Nested function (closure)
+**Plain:** A small helper defined *inside* another function, existing only to avoid
+repeating the same few lines twice, and signalling "this only makes sense in here."
+
+**Technical:** `ingest_ebnerd.load_behaviors` defines `def prefixed(list_col): ...`
+inside itself, called twice (`article_ids_inview`, `article_ids_clicked`) to avoid
+duplicating the cast-and-prefix expression. It returns a Polars expression, not a
+computed value — nothing runs until the outer `.collect()`.
+
+---
+
+#### Lazy pattern in practice: `pl.scan_parquet` + `.collect()`
+**Plain:** Build the whole "what to do" plan first, lazily, then trigger it once at the
+very end — versus loading everything immediately the way `pl.read_parquet` does.
+
+**Technical:** `ingest_ebnerd.py`'s `load_behaviors`/`load_history` use `pl.scan_parquet`
+(returns a `LazyFrame`) and only call `.collect()` at the very end, letting Polars'
+query optimizer push column selection down before materializing anything — the pattern
+that matters at EB-NeRD-large's 12M+ row scale (Phase 5), not yet needed at demo scale,
+but written this way now so the same function doesn't need rewriting later. `.collect()`
+at the end keeps the *return type* (`DataFrame`) consistent with `ingest_mind.py`'s
+eager functions — full memory-safe batched processing at 12M+ rows is still a Phase 5
+concern this alone doesn't solve.
+
 _Phase 2 terms appear here once taught._

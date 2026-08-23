@@ -188,4 +188,27 @@ since it wasn't written down explicitly until asked about directly.
 
 ---
 
+### D6 — Drop EB-NeRD's context `article_id` field from the unified schema
+**Date:** 2026-08-22 · **Decided by:** Chaitanya
+
+**Chosen:** EB-NeRD's `behaviors.parquet` has a scalar `article_id` column, distinct
+from `article_ids_inview`/`article_ids_clicked`, recording which article's page the
+reader was already on when a recommendation module was shown (null for front-page
+impressions — confirmed by its ~97.5% correlation with `scroll_percentage` also being
+non-null, and that it's the *clicked* article only 0.5% of the time). MIND has no
+equivalent concept. Decided **not** to add a column for it.
+
+**Alternatives rejected:**
+- *Add a nullable `context_article_id` column to `impressions`.* Preserves the
+  information for a possible future slice (on-article-page vs. front-page impressions),
+  but nothing in Q1–Q9 needs it, and it would be null for 100% of MIND rows and ~70% of
+  EB-NeRD rows.
+
+**Why:** Nothing in the assignment's required retrieval, evaluation, or slicing logic
+uses "which page was this recommendation shown on." Keeps the schema at D3's decided
+size. Found while building `ingest_ebnerd.py` — not part of the original D3 column list
+because this distinction wasn't discovered until inspecting real EB-NeRD data directly.
+
+---
+
 _Further decisions appended as they are made._
