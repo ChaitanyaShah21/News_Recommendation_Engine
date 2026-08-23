@@ -15,14 +15,24 @@ from pathlib import Path
 
 import yaml
 
+# Every path in this script is anchored to REPO_ROOT, computed once here from
+# this file's own location - not to the shell's current working directory.
+# Found the hard way (Chaitanya asked, then we tested it): the sys.path fix
+# below only made the *import* work from any directory; configs/mind.yaml and
+# data/processed were still being resolved against the caller's cwd, so
+# running this from outside the repo root failed with a plain
+# FileNotFoundError even though the import succeeded. Fixed by using
+# REPO_ROOT everywhere, not just for src/.
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
 # scripts/ is not part of the installed src/newsrec package, so it is not
-# on Python's import path automatically - add src/ ourselves, relative to
-# this file's own location, before importing anything from newsrec.
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+# on Python's import path automatically - add src/ ourselves before
+# importing anything from newsrec.
+sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from newsrec.build import build_feature_store
 
-OUTPUT_DIR = Path("data/processed")
+OUTPUT_DIR = REPO_ROOT / "data" / "processed"
 
 MIND_DOWNLOAD_HELP = """
 MIND-small raw files not found at {raw_root}
@@ -45,10 +55,13 @@ Unzip into {raw_root}/ (should contain articles.parquet, train/, validation/)
 
 
 def load_raw_root(config_filename: str) -> Path:
-    """Read `raw_root` out of one configs/*.yaml file."""
-    with open(Path("configs") / config_filename) as f:
+    """Read `raw_root` out of one configs/*.yaml file. The config's own
+    `raw_root` value (e.g. "data/raw/mind") is written as repo-root-relative,
+    so it gets resolved against REPO_ROOT too - not left relative to
+    whatever the caller's cwd happens to be."""
+    with open(REPO_ROOT / "configs" / config_filename) as f:
         config = yaml.safe_load(f)
-    return Path(config["raw_root"])
+    return REPO_ROOT / config["raw_root"]
 
 
 def check_raw_data(mind_root: Path, ebnerd_root: Path) -> None:
