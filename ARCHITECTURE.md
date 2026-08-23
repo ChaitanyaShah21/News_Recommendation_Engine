@@ -284,4 +284,29 @@ matches Q1.4's "small store" wording.
 
 ---
 
+### D10 — No auto-download in the one-command rebuild; check-and-guide instead
+**Date:** 2026-08-22 · **Decided by:** Chaitanya
+
+**Chosen:** `scripts/build_pipeline.py` does not download anything. It reads
+`configs/mind.yaml`/`configs/ebnerd.yaml` for raw-data locations, checks the expected
+files exist, and — if not — prints exact manual download instructions and exits (code 1)
+rather than crashing partway through ingestion with a confusing traceback.
+
+**Alternatives rejected:**
+- *Auto-download EB-NeRD (ungated), check-and-guide for MIND (gated).* Automates what
+  can genuinely be automated. Rejected for simplicity — partial automation (one dataset
+  auto-downloads, one doesn't) is arguably more confusing to explain than "download is a
+  separate manual step for both."
+- *Fully automate both via a required HF token.* Most complete, but needs a
+  `huggingface_hub` dependency and auth handling that goes beyond `scripts/`'s "thin
+  entry point, no logic" design (the original Phase 0 layout decision) — that logic
+  would need its own home in `src/newsrec/`.
+
+**Why:** Simplicity, and MIND's gating means full automation was never achievable for
+both datasets uniformly anyway. The check-and-guide behavior still means a missing-data
+run fails with an actionable message, not a bare `FileNotFoundError` three function calls
+deep inside `ingest_mind.py`.
+
+---
+
 _Further decisions appended as they are made._

@@ -1,0 +1,4 @@
+# Raw EB-NeRD-demo root - must contain articles.parquet, train/, and
+# validation/ subdirectories. Direct download, no login required - see
+# A1.md's Part 0 for the wget command.
+raw_root: data/raw/ebnerd/ebnerd_demo

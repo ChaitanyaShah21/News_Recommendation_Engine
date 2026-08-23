@@ -1,0 +1,6 @@
+# Raw MIND-small root - must contain MINDsmall_train/ and MINDsmall_dev/
+# subdirectories (each with news.tsv, behaviors.tsv). MIND is a gated
+# HuggingFace dataset - see PROGRESS.md's "Blocked on Chaitanya" section
+# for how access was obtained; scripts/build_pipeline.py will guide you if
+# these files aren't found here.
+raw_root: data/raw/mind

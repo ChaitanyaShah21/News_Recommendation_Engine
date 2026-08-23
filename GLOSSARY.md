@@ -348,4 +348,39 @@ of recomputed from raw files each time. Carries a real risk — staleness: if in
 code changes but the store isn't rebuilt, downstream code silently reads outdated data —
 which is exactly why Q1.5's one-command rebuild matters, not just as a convenience.
 
+---
+
+#### `__file__`, `.resolve()`, and script-relative paths
+**Plain:** A script asking "where am I actually located on disk?" instead of guessing
+based on wherever the terminal happened to be standing when it got run.
+
+**Technical:** `__file__` is a variable Python sets automatically inside every module to
+that file's own path. `.resolve()` turns it into an absolute path with no `..`/symlink
+ambiguity. `scripts/build_pipeline.py` uses `Path(__file__).resolve().parent.parent`
+to find the repo root reliably regardless of the caller's working directory, then adds
+`src/` to `sys.path` so `from newsrec.build import ...` can find the package.
+
+---
+
+#### stderr and exit codes
+**Plain:** Two separate channels for a program's output — one for normal results
+(stdout), one for diagnostics/errors (stderr) — plus a number reporting whether the
+program succeeded or failed, so other programs/scripts can check without reading text.
+
+**Technical:** `print(msg, file=sys.stderr)` sends output to stderr instead of the
+default stdout. `sys.exit(1)` stops the program with exit code 1 — by Unix convention,
+`0` means success, nonzero means failure, which matters if this script is ever chained
+in a Makefile or CI pipeline that checks `$?`.
+
+---
+
+#### `if __name__ == "__main__":`
+**Plain:** "Only actually run this if the file was executed directly, not if something
+else merely imported it."
+
+**Technical:** Python sets a module's `__name__` variable to `"__main__"` when that file
+is run directly, but to the module's real name when it's imported elsewhere. Guarding
+the main logic behind this check lets a script be safely imported (e.g. for testing)
+without immediately triggering its side effects.
+
 _Phase 2 terms appear here once taught._

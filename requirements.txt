@@ -5,3 +5,4 @@
 
 polars==1.43.2      # DataFrame library - matches the version in the provided notebooks
 pyarrow==25.0.1      # Parquet reading; also what polars uses under the hood for parquet
+pyyaml==6.0.3        # Reads configs/*.yaml - keeps raw-data paths out of code
