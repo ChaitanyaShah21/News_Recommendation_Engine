@@ -383,4 +383,93 @@ is run directly, but to the module's real name when it's imported elsewhere. Gua
 the main logic behind this check lets a script be safely imported (e.g. for testing)
 without immediately triggering its side effects.
 
-_Phase 2 terms appear here once taught._
+### Phase 2
+
+#### Tokenisation
+**Plain:** Cutting a sentence into the individual words you're going to count.
+
+**Technical:** Splitting text into the atomic units a retrieval model indexes and scores.
+Ours (D11): lowercase, then split on anything that is not a Unicode letter or digit
+(`[^\W_]+`), applied identically to English and Danish. Choices here are not neutral — a
+non-Unicode-aware pattern turns `"Rådden kørsel"` into `r dden k rsel`, silently.
+
+---
+
+#### TF (Term Frequency), written `f(t,D)`
+**Plain:** How many times this word appears in this one article.
+
+**Technical:** The raw count of term `t` in document `D`. In BM25 it enters through a
+*saturating* function, `f(k₁+1)/(f + k₁·…)`, with a hard ceiling of `k₁+1` — not through
+a logarithm (that's TF-IDF) and not linearly. Ten mentions score barely more than three.
+
+---
+
+#### DF (Document Frequency), written `n(t)`
+**Plain:** In how many *different* articles does this word appear at all? (Never "how
+many times" — an article mentioning *vote* five times still counts once.)
+
+**Technical:** The number of documents containing `t` at least once. Confusing it with TF
+is the easiest BM25 bug to write and the hardest to notice: it inflates `n(t)`, deflates
+every IDF, and raises no error. In our implementation `n(t)` is literally the **length of
+the term's posting list** — verified equal to `indptr[j+1] - indptr[j]` for all 92,593
+terms across both corpora.
+
+---
+
+#### IDF (Inverse Document Frequency)
+**Plain:** A rarity bonus. Matching on *inflation* tells you far more than matching on
+*the*, so rare words are worth more.
+
+**Technical:** `IDF(t) = ln((N − n(t) + 0.5)/(n(t) + 0.5) + 1)`, where `N` is corpus size.
+The `+0.5` terms are smoothing; the `+1` inside the log keeps IDF non-negative, so a
+document is never *penalised* for containing a common query word (older BM25 variants
+allowed that). Depends only on the **term and corpus** — never on the document — so it
+cannot explain why one document outranks another for a given query; it decides how much
+each *query word* matters relative to the others. Measured on MIND: `the` → 0.26, rarest
+terms → 10.68.
+
+---
+
+#### Length normalisation, `b`
+**Plain:** Discounting a long article so it doesn't win just by containing more words.
+
+**Technical:** The denominator factor `1 − b + b·|D|/avgdl`, where `|D|` is the document's
+token count and `avgdl` the corpus mean. `b=0` ignores length entirely, `b=1` divides
+fully by relative length, `b=0.75` is the usual blend. Note that the whole bracket is
+multiplied by `k₁` — so **`b` only has effect through `k₁`**, and setting `k₁=0` deletes
+length normalisation along with term-frequency saturation.
+
+---
+
+#### Inverted index
+**Plain:** The index at the back of a book — for each word, the list of pages it's on —
+rather than reading every page to find the word.
+
+**Technical:** A mapping from term → **posting list** (the documents containing it). Lets
+scoring touch only documents sharing at least one query term instead of the whole corpus.
+Ours is a sparse document-term matrix; its compressed-sparse-column form *is* the index
+(D14). See [[csr-csc]].
+
+---
+
+#### CSR / CSC (Compressed Sparse Row / Column) {#csr-csc}
+**Plain:** One long paper tape listing only the non-empty entries, plus a small index card
+saying where each row's lines start and stop.
+
+**Technical:** Three parallel arrays. `data` — the non-zero values. `indices` — which
+column (CSR) or row (CSC) each value sits in, read in lockstep with `data` at the same
+position. `indptr` — **positions into `data`/`indices`**, not column numbers, with one
+more entry than there are rows; row `i` occupies `indptr[i]:indptr[i+1]`, so an empty row
+falls out naturally as an empty slice. CSC is the same construction applied to columns,
+which is why its per-column runs are exactly posting lists. Measured on MIND: 19.2 MB
+sparse against 15.9 GB dense, at 0.0594% density.
+
+---
+
+#### Query term frequency, `qtf`
+**Plain:** How many of the user's last 10 clicked headlines contained this word.
+
+**Technical:** The count of a term within the *query*, distinct from `f(t,D)` within the
+document. Matters here only because our queries are manufactured from click history
+rather than typed. We count it linearly (D16); the alternatives are binary (kept as an
+ablation) and `k₃`-saturated (Robertson's full BM25).

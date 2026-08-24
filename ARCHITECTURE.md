@@ -309,4 +309,177 @@ deep inside `ingest_mind.py`.
 
 ---
 
+## Phase 2 — Q2, BM25 lexical retrieval
+
+Measured facts these five decisions were made against (read off `data/processed/`, not
+assumed):
+
+| | MIND | EB-NeRD |
+|---|---|---|
+| Articles | 65,238 | 11,777 |
+| title+abstract length, median / mean / p95 / max | 36 / 45.8 / 89 / 489 | 25 / 25.4 / 43 / 95 |
+| Abstract missing or blank | 5.2% | 6.8% |
+| History length, median / p95 / max | 15 / 85 / 444 | 91 / 529 / 1,000 |
+| Cold-start users (val) | 1,407 / 50,000 | 0 |
+| Val impressions / unique users | 51,205 / 37,777 | 17,749 / 1,437 |
+| Ground-truth clicks reachable in corpus | 100% | 100% |
+| Ground-truth clicks already in user's history | 0.19% | 0.47% |
+
+---
+
+### D11 — Tokenisation: lowercase + Unicode word split, no stopwords, no stemming
+**Date:** 2026-08-24 · **Decided by:** Chaitanya
+
+**Chosen:** One tokeniser for both datasets — lowercase, then split on anything that
+isn't a Unicode letter or digit. No stopword list, no stemmer. A `max_df` cutoff (drop
+terms appearing in more than X% of documents) exists as a config knob, unused by default.
+
+**Alternatives rejected:**
+- *Per-language stopword removal* (English for MIND, Danish for EB-NeRD). Barely changes
+  rankings — inverse document frequency already reduces *the* to ≈0.1 against *inflation*'s
+  ≈8 — so its real benefit is shrinking the largest posting lists, i.e. speed. Costs two
+  language-specific code paths and a divergence between the datasets that would have to be
+  justified in Q3.5's cross-dataset comparison. `max_df` gets the same speed benefit
+  without a word list.
+- *Stopwords + stemming* (Porter for English, Snowball for Danish). Genuinely helps a
+  morphologically richer language like Danish, but then the two datasets are processed by
+  measurably different algorithms, which weakens every cross-dataset claim in the design
+  note.
+
+**Why:** One algorithm across both datasets keeps Q3.5's comparison honest, and IDF
+already performs most of what stopword removal would.
+
+**Adversarial requirement recorded up front (R10):** the obvious regex `[a-z0-9]+`
+silently destroys Danish — `"Rådden kørsel på blå plader"` becomes
+`r dden k rsel p bl plader`, five corrupted tokens with no error raised. The pattern must
+be Unicode-aware, and a test asserts this exact string tokenises correctly.
+
+---
+
+### D12 — Query = titles of the last N clicked articles, N = 10
+**Date:** 2026-08-24 · **Decided by:** Chaitanya
+
+**Chosen:** Build each user's BM25 query by concatenating the **titles** of their **10
+most recent** clicked articles. N is a config parameter, not a literal.
+
+**Alternatives rejected:**
+- *Entire history.* Uses all evidence, but EB-NeRD's median history is 91 articles
+  (max 1,000) — a ~900-token query averaging weeks of interests. BM25 contains no time
+  term of any kind, so topic drift cannot be corrected by tuning; it has to be handled in
+  query construction or not at all. News relevance decays in hours, which makes this the
+  worst domain for it.
+- *Last N titles **and** abstracts.* More signal per clicked article, but abstracts are
+  ~4× longer than titles, so the drift problem returns at N=10 instead of N=91.
+
+**Why:** Recency is the only defence available against drift, since the algorithm has no
+notion of time. N=10 covers most of a MIND user's history (median 15) while cutting
+EB-NeRD's long tail hard. If Phase 2 stays inside its 4h budget, sweep N ∈ {5, 10, 20,
+all} on val — nearly free, since the index is built once and only the query changes.
+
+**Assumption flagged, not hidden:** "last N" needs chronological order. EB-NeRD supplies
+`history_timestamps` so its history can be sorted properly. **MIND does not** — it gives a
+bare space-separated list, documented as click-ordered but unverifiable from the data
+itself. For MIND, "last 10" means "last 10 in file order, trusting the documentation."
+
+---
+
+### D13 — `k₁` = 1.5, `b` = 0.75 for headline numbers; tune `b` only if time allows
+**Date:** 2026-08-24 · **Decided by:** Chaitanya
+
+**Chosen:** Standard defaults for the reported results. If Phase 2 is inside budget,
+sweep `b ∈ {0.3, 0.5, 0.75, 1.0}` on val — 4 runs, `k₁` left fixed.
+
+**Alternatives rejected:**
+- *Full grid* `k₁ ∈ {0.9,1.2,1.5,2.0}` × `b ∈ {0.3,0.5,0.75,1.0}` — 16 runs. Better
+  coverage, but 4× the runtime for the parameter that moves least.
+
+**Why:** Our documents are short (median 25–36 tokens) whereas `b = 0.75` was tuned on
+TREC news articles of several hundred words, so length normalisation is the parameter
+most likely to be wrong at our document size. `k₁` is far more stable across corpora. If
+only one parameter can be tuned, tune `b`.
+
+---
+
+### D14 — Implement the inverted index ourselves on `scipy.sparse`, not via a library
+**Date:** 2026-08-24 · **Decided by:** Chaitanya
+
+**Chosen:** Our own implementation. The document-term sparse matrix **is** the inverted
+index — in compressed-sparse-column form it stores, per term, the list of documents
+containing it. Scoring a batch of queries is one sparse matrix product.
+
+**Alternatives rejected:**
+- *`rank_bm25`.* Three lines to use, but it loops over every document per query in pure
+  Python — not actually an inverted index. 37,777 queries × 65,238 documents would not
+  finish.
+- *`bm25s`.* Fast and genuinely sparse, but Q2.1 grades *"build an inverted index"*, and a
+  library call neither demonstrates that nor leaves anything defensible in a viva.
+
+**Why:** It's the difference between having built the thing and having called it, on a
+sub-requirement that names the data structure explicitly.
+
+**Costs accepted:** one new dependency (`scipy`), and the query side must be batched —
+37,777 queries × 65,238 documents as one dense score matrix is ~10 GB against 7 GB of
+RAM. That batching constraint is itself a `SCALE_NOTES.md` entry for Q6's "where it
+breaks at 10×".
+
+---
+
+### D15 — Exclude articles the user has already read from their retrieved candidates
+**Date:** 2026-08-24 · **Decided by:** Chaitanya
+
+**Chosen:** Remove the user's own history articles from their candidate set before
+taking top-K.
+
+**Alternatives rejected:**
+- *Keep them and report recall as-is.* Simpler and needs no justification, but the query
+  is built **from those articles' own titles**, so they match themselves near-perfectly
+  and occupy the top of every result list — spending top-K slots on articles the user
+  demonstrably already read.
+
+**Why:** Cost measured before deciding, not assumed: only **0.19% (MIND) / 0.47%
+(EB-NeRD)** of val ground-truth clicks are articles already in that user's history. So
+exclusion removes at most half a percent of achievable recall while freeing slots that
+would otherwise be near-guaranteed self-matches. The exact ceiling this imposes is
+reported alongside the recall numbers rather than quietly absorbed.
+
+---
+
+### D16 — Query-term repetition counts linearly (raw query term frequency)
+**Date:** 2026-08-24 · **Decided by:** Chaitanya
+
+A fork that only surfaced while building the document side, so it was raised mid-step
+rather than picked quietly (R6). The stored weights handle `f(t,D)` — repetition inside
+the *document*. But a query built from 10 concatenated titles can also repeat a term: if
+*tariff* appears in 8 of the user's last 10 clicked titles, how much should that count?
+
+**Chosen:** raw query term frequency — 8 occurrences contribute 8×. The standard textbook
+formulation of BM25 as a sum over query term *occurrences*. Plus a **binary-query
+ablation** on val, since the index is built once and only the query vector changes, which
+makes the comparison nearly free.
+
+**Alternatives rejected:**
+- *Binary query terms* (each distinct term counts once). Immune to any single word
+  dominating, but discards the strongest signal available — a topic the user returned to
+  repeatedly this week. Kept as the ablation rather than the default.
+- *Saturated query frequency with a third parameter `k₃`* — `qtf·(k₃+1)/(k₃+qtf)`,
+  Robertson's full BM25, designed for exactly this long-query case. Most principled, but
+  our queries are only ~10 titles so the runaway-dominance case it protects against
+  cannot really arise, and it costs a third hyperparameter to justify with no budget to
+  tune it.
+
+**Why:** the risk raw counts carry is one word swamping the query; with 10 titles the
+counts top out around 8–10 and IDF already flattens common words (measured: `the` has
+IDF 0.26 against a corpus maximum of 10.68 — a 41× spread). The ablation converts
+"repetition matters" from an assertion into a measured number for the design note.
+
+---
+
+**Judgment call made without a decision point** (R6 trivia exception — changes runtime,
+not results): the query depends only on the user's history, which is fixed per user
+within a split, so scoring runs **once per unique user** and joins back to impressions
+rather than once per impression. Identical numbers; 26% less work on MIND and 12× less on
+EB-NeRD (1,437 users behind 17,749 impressions).
+
+---
+
 _Further decisions appended as they are made._
