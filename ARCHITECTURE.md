@@ -1113,7 +1113,7 @@ method gave up rather than ranking methods.
 |---|---|---|---|---|---|---|
 | MIND | retrieval | bm25 | 0.7169 | 0.5892 | 17.718 | 51.02% |
 | MIND | retrieval | semantic | 0.5618 | 0.5001 | 17.724 | **53.21%** |
-| MIND | retrieval | popularity | 0.9003 | 0.8444 | 6.861 | **0.02%** |
+| MIND | retrieval | popularity | 0.9003 | 0.8444 | 6.861 | **0.015%** |
 | MIND | retrieval | random | 0.9381 | 0.8009 | 17.882 | 99.96% |
 | MIND | re-rank | bm25 / semantic / popularity / random | 0.93 / 0.89 / 0.94 / 0.94 | 0.86 / 0.84 / 0.89 / 0.89 | 16.0 / 15.8 / 13.8 / 16.0 | **4.26 / 4.11 / 2.24 / 4.35%** |
 | EB-NeRD | retrieval | bm25 | 0.7482 | 0.6207 | 14.468 | 31.13% |
@@ -1147,8 +1147,8 @@ is less diverse on both bases, on EB-NeRD only on one. Reporting one basis would
 hidden that a method's diversity behaviour is dataset-dependent.
 
 **Finding 10 — coverage is where the methods actually separate, and they separate by 3
-orders of magnitude.** On MIND retrieval: popularity **0.02%** (about 13 articles served
-to all 50,000 users), semantic 53.21%, bm25 51.02%, random 99.96%. Popularity is the
+orders of magnitude.** On MIND retrieval: popularity **0.015%** (exactly **10** distinct
+articles served to all 50,000 users), semantic 53.21%, bm25 51.02%, random 99.96%. Popularity is the
 dead-stock warehouse quantified — an entire recommender whose whole catalogue is thirteen
 articles. It also scores novelty 6.861 against a corpus floor of 6.13, confirming by a
 second route that it is serving nothing but the head.
@@ -1172,6 +1172,199 @@ semantic as if it meant something would be over-reading a long tail.
 **Finding 12 — Fork A demonstrated rather than argued.** On the re-ranking rows, four
 completely different scorers land within 0.4 percentage points of each other on EB-NeRD
 coverage (17.75–18.17%) and within 0.02 on category diversity. On the retrieval rows the
-same four methods span **0.02% to 99.96%**. Re-ranking beyond-accuracy measures the
+same four methods span **0.015% to 99.96%**. Re-ranking beyond-accuracy measures the
 platform's candidate generator, not the scorer sitting behind it — which is why the
 headline is measured on retrieval.
+
+---
+
+### D26 — Slice definitions: absolute cold-start threshold, and two head/tail definitions
+**Date:** 2026-08-25 · **Decided by:** Chaitanya
+
+**Cold start — chosen:** absolute threshold, `history_len <= 5`. MIND 17.7% of val
+impressions, EB-NeRD 0.3% (55 impressions).
+
+**Rejected:** *zero history only* (`has_query`) — 3.0% / 0.0%, matches D17 exactly but
+the spec says "few clicks", not "no clicks"; *per-dataset quantile* (bottom 25%) — equal
+slice sizes and comparable intervals, but "cold" would then mean ≤8 articles on MIND and
+≤94 on EB-NeRD, two different concepts under one label.
+
+**Why:** cold start is an *absolute* property — we know little about this user — not a
+relative rank. The datasets barely overlap on history length:
+
+| history length per val impression | p0 | p10 | p25 | p50 | p75 | p90 |
+|---|---|---|---|---|---|---|
+| MIND | 0 | 3 | 8 | 19 | 42 | 77 |
+| EB-NeRD | **5** | 37 | 94 | 225 | 400 | 604 |
+
+EB-NeRD's *coldest* user has more history than MIND's 25th percentile. That EB-NeRD has
+essentially no cold-start users is a finding; a quantile slice would have manufactured a
+comparison that hid it. The cost is accepted and reported: EB-NeRD's cold slice (n = 55)
+carries intervals so wide that every method overlaps every other.
+
+**Head vs tail — chosen:** both definitions, because the textbook one is degenerate here.
+
+| definition | head size | val clicks landing in head |
+|---|---|---|
+| train-popularity (top 50% of *training* clicks) | MIND 186 / EB-NeRD 233 articles | **2.1% on both** |
+| exposure (articles filling 50% of val impression slots) | MIND 74 / EB-NeRD 232 | MIND 67.3% / EB-NeRD 54.9% |
+
+88.2% (MIND) / 90.5% (EB-NeRD) of the corpus was never clicked during training, and
+39.7% / 94.4% of val clicked articles were never clicked in training either — the
+catalogue turns over between windows, so training popularity barely predicts later clicks.
+Exposure splits both datasets usefully and, critically, **is counted from
+`candidate_article_ids` — what was shown — never from clicks.** Counting exposure from
+clicks would produce a similar-looking ranking and make the slice circular: impressions
+grouped by a quantity derived from their own labels.
+
+**Stated default, not a fork** (Phase 3 pacing agreement): an impression whose clicks
+straddle the head/tail boundary is assigned to *neither* slice and counted separately,
+rather than resolved by an invented majority rule. On EB-NeRD that is 20 impressions.
+
+**Caveat that must travel with the train-popularity slice.** Popularity scores AUC
+**0.9407** on EB-NeRD's `head-trainpop` slice against 0.4647 overall. That is not a
+finding — the slice is *defined* by train popularity and the method *scores* by train
+popularity, so the method is being graded on the quantity that selected the slice. Same
+family of error as measuring semantic's diversity in its own embedding space (D25's Fork
+B). It is reported with this caveat attached, never as evidence that popularity works.
+
+---
+
+### D27 — Coverage is reported without a bootstrap confidence interval
+**Date:** 2026-08-25 · **Decided by:** Chaitanya
+
+Found by running Q4.4's bootstrap and noticing every coverage interval sat **entirely
+below its own point estimate** (e.g. EB-NeRD BM25 retrieval: point 31.13%, percentile
+interval [24.45%, 25.68%]).
+
+**Root cause, and it is the statistic rather than the code.** Drawing n items with
+replacement from n items yields only **63.2%** distinct items — measured at n = 1,562,
+17,749 and 50,000, all 63.2% (the 1 − 1/e result). For a **mean** that is harmless: a
+duplicated impression still contributes its value, so the mean scatters around the truth
+unbiased. For **coverage** it is fatal: coverage is the size of a *union*, a duplicate
+contributes nothing new, so every resample can only lose articles. The whole bootstrap
+distribution shifts down and the percentile interval inherits the shift. This is why AUC,
+MRR, nDCG, diversity and novelty intervals are all sound and only coverage is not.
+
+**Chosen:** report coverage's point estimate with no interval, and explain why. Both the
+raw resample spread (`coverage_resample_lo/hi_BIASED`) and the pivotal correction
+(`coverage_pivotal_lo/hi`) are kept in the CSV under explicit names.
+
+**Alternatives rejected:**
+- *Basic (pivotal) interval as the headline* — `[2·point − q97.5, 2·point − q2.5]`,
+  the textbook remedy for a location-shifted bootstrap, and it satisfies Q4.4's "CI for
+  each metric" literally. Rejected because both quantiles sit *below* the point, so the
+  corrected interval lands entirely *above* it (BM25 retrieval: [36.57%, 37.81%]). That is
+  defensible as an estimate of population coverage but it still excludes the reported
+  number, so it does not remove the need for the explanation — it adds a second thing to
+  defend.
+- *Rarefaction: coverage at a fixed subsample size m < n drawn without replacement.*
+  Statistically the most correct treatment, and it would make the sample-size dependence
+  explicit. Rejected on time, and because it changes the headline number so the whole Q4.3
+  table would need re-reading two days from the deadline.
+
+**Why:** what we report is closer to a **census** than an estimate. "Our system surfaced
+31.1% of the catalogue to these 50,000 users" was counted, not estimated — there is no
+sampling error to state. The other seven metrics are per-impression averages where "what
+if we had drawn different impressions?" is a real question.
+
+**Test debt this exposed, recorded because it is the more useful lesson.**
+`test_resampled_coverage_never_exceeds_the_full_coverage` already asserted this exact
+downward shift and treated it as correct behaviour. The assertion was mathematically true;
+what was missing was the inference that it invalidates the interval. **A test can pin a
+real property and still let a wrong conclusion through** — the test is now renamed and
+documents *why* the numbers cannot be reported as a CI, alongside a test pinning the 63.2%
+fact directly.
+
+---
+
+## Q4.3 slices + Q4.4 bootstrap intervals — the measured results
+
+`scripts/run_eval_report.py`, val, re-ranking, pessimistic ties, 1,000 resamples,
+percentile intervals. Every metric in a cell shares one resample draw.
+
+**Finding 13 — the confidence intervals convert two earlier observations into claims.**
+
+EB-NeRD, all impressions with a query (n = 17,749), AUC:
+
+| method | AUC | 95% CI | verdict |
+|---|---|---|---|
+| random | 0.4987 | [0.4935, 0.5038] | — |
+| **bm25** | **0.4966** | **[0.4917, 0.5009]** | **interval contains 0.5: cannot reject chance** |
+| popularity | 0.4647 | [0.4629, 0.4666] | entirely below 0.5: worse than random, not noise |
+| semantic | 0.5331 | [0.5286, 0.5379] | excludes 0.5 and excludes BM25's interval |
+
+Finding 6 ("BM25 cannot re-rank EB-NeRD") was an observation about two similar numbers;
+it is now a statistical statement. Finding 7 (popularity below chance) likewise.
+
+**Finding 14 — the method ranking *flips* between slices, which is the whole point of
+slicing.** MIND, cold (history ≤ 5, n = 7,522) versus warm (n = 42,127), AUC:
+
+| method | cold | warm |
+|---|---|---|
+| popularity | **0.5542 [0.5477, 0.5609]** | 0.5402 [0.5378, 0.5427] |
+| bm25 | 0.5296 [0.5220, 0.5366] | **0.5526 [0.5496, 0.5554]** |
+| semantic | 0.6160 [0.6084, 0.6234] | 0.6370 [0.6343, 0.6397] |
+
+**On cold-start users, popularity beats BM25** — and the intervals do not overlap, so it
+is not noise. On warm users the order reverses, also with non-overlapping intervals. The
+mechanism is straightforward once seen: with ≤5 articles of history BM25's query is short
+and noisy, so a generic "what is everyone reading" ranking is genuinely better than a
+personalised one built from almost no evidence. Popularity is the *only* method that
+scores **higher** on cold users than warm ones.
+
+This is also the retrospective justification for D17's rejected popularity fallback: the
+fallback would have been the right *product* decision and would still have been the wrong
+*measurement* decision, because it would have hidden this crossover inside a single
+blended number.
+
+**Finding 15 — semantic degrades least under cold start.** From warm to cold, BM25 loses
+0.0230 AUC and semantic 0.0210, while popularity *gains* 0.0140. Semantic stays clearly
+ahead in both slices. Ten embedded titles carry more usable signal than ten titles' worth
+of bag-of-words, and the gap is widest exactly where evidence is scarcest.
+
+**Finding 16 — everything gets harder on rarely-shown articles, but the ranking survives.**
+MIND, exposure head (n = 32,060) vs tail (n = 10,617):
+
+| method | MRR head | MRR tail | AUC head | AUC tail |
+|---|---|---|---|---|
+| random | 0.2958 | 0.1478 | 0.5004 | 0.4996 |
+| bm25 | 0.3391 | 0.2060 | 0.5453 | **0.5561** |
+| semantic | 0.3963 | 0.2360 | **0.6397** | 0.6222 |
+
+MRR halves on the tail for *every* method including random — that is the slice being
+structurally harder (the clicked article is one the platform barely promoted), not a
+method failing. AUC, which normalises for that, barely moves; BM25 even improves. Reading
+the MRR drop as "our system is bad at tail articles" would have been the mistake, and
+having both metrics on the same slice is what prevents it.
+
+On EB-NeRD the same slice pair shows semantic doing **better** on the tail
+(0.5406 [0.5337, 0.5474]) than the head (0.5269 [0.5208, 0.5327]), intervals
+non-overlapping — content matching earns more where the platform's own promotion is doing
+less work, which is Finding 6's mechanism seen from the other side.
+
+**Finding 17 — a slice defined by a quantity a method scores on grades that method
+tautologically.** On the train-popularity head slice, popularity scores AUC **0.9737**
+[0.9697, 0.9779] on MIND and 0.9407 on EB-NeRD, against 0.5423 / 0.4647 overall. The slice
+is *defined as* "impressions whose clicked article is train-popular" and the method
+*ranks by* train popularity, so the slice selects exactly the impressions the method
+cannot miss.
+
+This is the same shape as measuring semantic's diversity in the embedding space it
+optimises (D25's Fork B). Two independent instances in one phase makes it a rule worth
+stating in the design note: **whenever a slice and a method share a definition, that
+method's score on that slice is close to a tautology.** Reported with the caveat attached,
+never as evidence popularity works.
+
+**Slice sizes, including what the slices exclude:**
+
+| | MIND | EB-NeRD |
+|---|---|---|
+| impressions with a query | 49,649 | 17,749 |
+| cold (≤5) / warm | 7,522 / 42,127 | 55 / 17,694 |
+| exposure head / tail / **mixed-click excluded** | 32,060 / 10,617 / **7,209** | 9,735 / 7,994 / **20** |
+| train-pop head / tail / mixed-click excluded | 574 / 48,085 / 1,019 | 376 / 17,371 / 2 |
+
+MIND's exposure slice excludes **7,209 impressions (14.5%)** whose clicks straddle the
+boundary — a direct consequence of 29.3% of MIND impressions carrying multiple clicks, and
+a real cost of refusing to invent a majority rule. EB-NeRD, at 99.5% single-click, loses 20.

@@ -20,6 +20,11 @@ Read every number here against the accuracy table, never alone: the random arm
 scores BEST on all three metrics, so these price what a method gave up rather
 than ranking the methods.
 
+Diversity and novelty carry bootstrap 95% intervals (Q4.4). Coverage does not:
+the bootstrap is biased downward for a union statistic, so its percentile
+interval is not a confidence interval (D27). The raw spread and the pivotal
+correction are both kept in the CSV under explicit column names.
+
     python scripts/run_beyond_accuracy.py [--k 10] [--datasets mind ebnerd]
 """
 
@@ -37,6 +42,7 @@ import numpy as np  # noqa: E402
 import polars as pl  # noqa: E402
 
 from newsrec.eval import beyond_accuracy as ba  # noqa: E402
+from newsrec.eval import bootstrap as boot  # noqa: E402
 from newsrec.eval import metrics as met  # noqa: E402
 from newsrec.eval import rerank  # noqa: E402
 from newsrec.retrieval import bm25, bm25_search, semantic, semantic_search  # noqa: E402
@@ -172,6 +178,7 @@ def main() -> int:
     parser.add_argument("--k", type=int, default=10)
     parser.add_argument("--datasets", nargs="+", default=["mind", "ebnerd"])
     parser.add_argument("--n-recent", type=int, default=bm25_search.DEFAULT_N_RECENT)
+    parser.add_argument("--resamples", type=int, default=boot.DEFAULT_RESAMPLES)
     args = parser.parse_args()
 
     rows = []
@@ -182,32 +189,59 @@ def main() -> int:
         )
         rr = _rerank_lists(dataset, args.k, args.n_recent)
 
-        print(f"\n  {'output':<11} {'method':<11} {'ILD-embed':>10} {'ILD-cat':>8} "
-              f"{'novelty':>8} {'coverage':>9} {'lists':>8}")
+        print(f"\n  {'output':<11} {'method':<11} {'ILD-embed':>22} {'ILD-cat':>22} "
+              f"{'novelty':>22} {'coverage':>22}")
         for label, group in (("retrieval", lists), ("re-rank", rr)):
+            # One index draw shared by every metric in this (dataset, output,
+            # method) cell, so the four intervals describe the same resampled
+            # worlds rather than four independent ones (Q4.4).
+            n_lists = len(group[METHODS[0]])
+            draw = boot.draw_indices(n_lists, args.resamples, boot.DEFAULT_SEED)
             for method in METHODS:
                 r = ba.evaluate_lists(
                     group[method], embeddings, categories, novelty, n_articles
                 )
-                ild_e, n_e, _ = met.macro_mean(r["ild_embedding"])
-                ild_c, _, _ = met.macro_mean(r["ild_category"])
-                nov, _, _ = met.macro_mean(r["novelty"])
-                print(f"  {label:<11} {method:<11} {ild_e:10.4f} {ild_c:8.4f} "
-                      f"{nov:8.3f} {r['coverage'] * 100:8.2f}% {n_e:8,}")
-                rows.append(
-                    {
-                        "dataset": dataset,
-                        "output": label,
-                        "method": method,
-                        "k": args.k,
-                        "ild_embedding": round(ild_e, 4),
-                        "ild_category": round(ild_c, 4),
-                        "novelty": round(nov, 3),
-                        "coverage": round(r["coverage"], 5),
-                        "n_lists": r["n_lists"],
-                        "catalogue": n_articles,
-                    }
-                )
+                cis = {
+                    "ild_embedding": boot.bootstrap_mean(r["ild_embedding"], indices=draw),
+                    "ild_category": boot.bootstrap_mean(r["ild_category"], indices=draw),
+                    "novelty": boot.bootstrap_mean(r["novelty"], indices=draw),
+                    # Coverage is a property of the union, not a mean, so it is
+                    # recomputed inside each resample rather than averaged.
+                    "coverage": boot.bootstrap_coverage(
+                        group[method], n_articles, indices=draw
+                    ),
+                }
+                cell = lambda c: f"{c.point:7.3f} [{c.low:6.3f},{c.high:6.3f}]"
+                # D27: coverage is printed WITHOUT an interval. The bootstrap is
+                # biased downward for a union statistic - a resample holds only
+                # 63.2% of the distinct lists, and a duplicate adds no new
+                # articles - so its percentile interval sits entirely below the
+                # point estimate and is not a confidence interval. Both the raw
+                # spread and the pivotal correction are kept in the CSV.
+                print(f"  {label:<11} {method:<11} {cell(cis['ild_embedding']):>22} "
+                      f"{cell(cis['ild_category']):>22} {cell(cis['novelty']):>22} "
+                      f"{cis['coverage'].point * 100:21.3f}%")
+                row = {
+                    "dataset": dataset,
+                    "output": label,
+                    "method": method,
+                    "k": args.k,
+                    "n_lists": r["n_lists"],
+                    "catalogue": n_articles,
+                }
+                for name in ("ild_embedding", "ild_category", "novelty"):
+                    ci = cis[name]
+                    row[name] = round(ci.point, 5)
+                    row[f"{name}_lo"] = round(ci.low, 5)
+                    row[f"{name}_hi"] = round(ci.high, 5)
+                cov = cis["coverage"]
+                piv_lo, piv_hi = cov.pivotal()
+                row["coverage"] = round(cov.point, 5)
+                row["coverage_resample_lo_BIASED"] = round(cov.low, 5)
+                row["coverage_resample_hi_BIASED"] = round(cov.high, 5)
+                row["coverage_pivotal_lo"] = round(piv_lo, 5)
+                row["coverage_pivotal_hi"] = round(piv_hi, 5)
+                rows.append(row)
         print(f"\n  novelty range for this corpus: "
               f"{novelty.min():.2f} (most clicked) to {novelty.max():.2f} (never clicked)")
 
