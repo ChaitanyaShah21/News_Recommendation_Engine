@@ -474,11 +474,104 @@ IDF 0.26 against a corpus maximum of 10.68 — a 41× spread). The ablation conv
 
 ---
 
+### D17 — Cold-start users: excluded from the headline, reported alongside
+**Date:** 2026-08-25 · **Decided by:** Chaitanya
+
+A user with empty history produces an empty query, so BM25 scores every article 0 and
+there is no ranking to take a top-K from. Affects **1,556 MIND val impressions (3.0%),
+2,440 ground-truth clicks (3.1%)** — and **zero EB-NeRD impressions**, so however this is
+handled lands asymmetrically across the two datasets and feeds Q3.5's comparison.
+
+**Chosen:** headline recall@K over impressions where a query exists, with the
+all-impressions number (query-less users counted as misses) printed on the same line.
+
+**Alternatives rejected:**
+- *Include them scoring 0 recall as the only number.* Honest end-to-end, but penalises
+  BM25 for something it structurally cannot do and hard-caps MIND's recall at 96.9%.
+  Retained as the second number rather than discarded.
+- *Give them a popularity fallback.* What real systems do, but it blends two retrieval
+  systems into one number reported as "BM25 recall@K" — the conflation Q9 exists to
+  catch. The popularity baseline is needed for Q4 anyway, so cold-start can be revisited
+  then with it already built.
+
+---
+
+### D18 — Macro (per-impression) averaging for recall@K, micro reported alongside
+**Date:** 2026-08-25 · **Decided by:** Chaitanya
+
+**Chosen:** mean of per-impression recalls. Micro (pooled hits / pooled clicks) printed
+as a second column.
+
+**Alternatives rejected:**
+- *Micro as the headline.* Weights a 21-click impression 21× a single-click one. Matters
+  on MIND (29% of val impressions carry >1 click, max 21) and is nearly a no-op on
+  EB-NeRD (99.5% single-click).
+
+**Why:** unit consistency. Q4's metrics are per impression, its bootstrap resamples
+impressions, and both leaderboards score per impression — so Q2, Q3 and Q4 numbers can be
+laid side by side without a footnote saying one of them counts something different.
+
+---
+
+### D19 — Also report retrieval restricted to articles already in circulation
+**Date:** 2026-08-25 · **Decided by:** Chaitanya
+
+**Chosen:** keep whole-corpus BM25 as the Q2 headline **and** add a second run where, for
+each impression at time T, candidates are restricted to articles whose first appearance
+in the impression log is strictly before T. Buckets of 1 hour.
+
+**Alternatives rejected:**
+- *Whole corpus only.* Fully satisfies Q2's four sub-requirements, and costs nothing
+  more. Loses the strongest observation available for Q6.
+- *Make the restricted variant the headline.* Q2.3 says "retrieve top-K candidate
+  articles using BM25 scoring"; the unrestricted run is the literal answer, and nothing
+  should rest on an extension.
+
+**Why:** the spec asks for it three times — *"rapid news decay makes temporal splitting
+and freshness handling instructive"*, Q1.4's *"user features (click history, recency)"*,
+and the behavioural axis's *"recency/decay"*. Q6 wants observations from experiments.
+
+**BM25 itself is unmodified** — same formula, same `k₁`/`b`, same index, same queries.
+Only the candidate pool changes. Adding a recency term *into* the scoring function and
+still calling the result BM25 would have been the actual violation.
+
+**Leak-safety, which is the real risk rather than permission:** the filter asks only
+`first_seen < T` — strictly before, so an article first appearing in *this* impression is
+excluded (hence the measured ceiling of 92.8% EB-NeRD / 99.8% MIND); it is computed from
+`candidate_article_ids` (what was *shown*), never from clicks; and "was this already in
+circulation" is knowable at serving time. `tests/test_no_leakage.py` must assert the
+strict inequality so a later "fix" to `<=` cannot silently import the future.
+
+**Cost this creates for Phase 3:** Q3.5 compares lexical vs semantic. That comparison is
+only meaningful if both retrieve from the *same* pool, so embeddings must be run under
+both pools too. Charged to Phase 3's budget.
+
+**Measured outcome — the reason this was worth doing.** Restricting the pool raises
+absolute recall and raises random-chance recall at the same time:
+
+| Dataset | Pool | recall@200 | random@200 | lift |
+|---|---|---|---|---|
+| MIND | whole corpus | 2.05% | 0.31% | **6.7×** |
+| MIND | available | 3.95% | 0.94% | **4.2×** |
+| EB-NeRD | whole corpus | 2.45% | 1.70% | **1.4×** |
+| EB-NeRD | available | 7.27% | 6.81% | **1.07×** |
+
+EB-NeRD's 2.45% → 7.27% looks like a 3× win and is almost entirely the pool shrinking
+from 11,777 to ~2,963. Reported without the baseline column it would have been a
+materially misleading result. Within a fresh Danish news cycle, BM25's lexical similarity
+to reading history is worth about 7% over choosing at random; MIND retains a real 4.2×
+because its available pool is ~21,000 articles, leaving far more for content matching to
+discriminate between.
+
+---
+
 **Judgment call made without a decision point** (R6 trivia exception — changes runtime,
 not results): the query depends only on the user's history, which is fixed per user
 within a split, so scoring runs **once per unique user** and joins back to impressions
 rather than once per impression. Identical numbers; 26% less work on MIND and 12× less on
-EB-NeRD (1,437 users behind 17,749 impressions).
+EB-NeRD (1,437 users behind 17,749 impressions). This does **not** hold for D19's
+availability runs — what is available changes with time even though the query does not —
+so those score once per (user, hour-bucket) task instead.
 
 ---
 

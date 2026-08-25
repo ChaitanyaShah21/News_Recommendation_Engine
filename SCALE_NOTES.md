@@ -29,4 +29,40 @@ EB-NeRD-large's 13.5 M impressions would be far worse.
 top-K per row, discard the scores. Memory then depends on batch size, not on user count.
 This is a bound we hit at *demo* scale, not at 10×, so the batching is not premature.
 
+**Update (2026-08-25), now measured rather than projected:** batching implemented at
+`batch_size=256`; peak memory stayed flat and MIND val retrieval ran in **198–218 s** for
+37,777 users × 65,238 articles. Confirmed by test that batch sizes 1, 7 and 1000 produce
+byte-identical results.
+
+**But retrieval time is now the binding constraint, not memory.** ~200 s per run at
+MIND-small scale, and the cost scales with (queries × candidate pool). MINDlarge_test has
+**2.37 M impressions** against MIND-small val's 51,205 — roughly **46×** — and a larger
+article corpus besides, projecting to **2.5–3 hours per configuration** single-threaded.
+Four configurations (2 pools × 2 query variants) would be a full day.
+
+**What we would do about it at 10×:** (a) the `max_df` knob from D11 — a query containing
+*the* forces the product to walk a 50,233-entry posting list to earn an IDF of 0.26;
+(b) drop to one query variant now that D16's ablation shows raw-vs-binary is near-noise;
+(c) parallelise across batches, which is embarrassingly parallel and currently
+single-threaded; (d) for Codabench, note the leaderboard task is *re-ranking* a supplied
+candidate list (~38 articles for MIND), not whole-corpus retrieval — so Q5 does not pay
+this cost at all. Only Q2/Q3's recall@K does.
+
+---
+
+### Time-bucketed retrieval multiplies work by bucket count, not by impressions
+**Observed (2026-08-25, Phase 2, D19):** restricting candidates to articles in
+circulation makes the candidate pool time-dependent, so the "score once per unique user"
+saving no longer applies — the same user must be re-ranked in each time bucket they
+appear in. At 1-hour buckets: EB-NeRD went from 1,562 user-retrievals to **8,777 tasks**
+(5.6×, though still only 6 s), MIND from 50,000 to **47,998 tasks** (roughly break-even,
+because MIND's val window is only 13 hours long).
+
+**What it implies at 10×:** the multiplier is (buckets a user appears in), which grows
+with the *span* of the evaluation window, not its row count. EB-NeRD-large's validation
+window is far longer than the demo's 5 days, so this factor grows there while MIND's
+stays near 1. A coarser bucket (6 h, 1 day) trades accuracy of the availability cutoff
+for a smaller task count, and the cost of that trade is measurable — worth quantifying
+before assuming hourly is necessary.
+
 ---

@@ -1,0 +1,13 @@
+dataset,pool,query,slice,k,recall@k (macro),recall@k (micro),impressions,clicks
+mind,whole-corpus,raw_tf,has-query,50,0.0064,0.0066,49649,75962
+mind,whole-corpus,raw_tf,all-impressions,50,0.0062,0.0064,51205,78402
+mind,whole-corpus,raw_tf,has-query,100,0.0125,0.0128,49649,75962
+mind,whole-corpus,raw_tf,all-impressions,100,0.0121,0.0124,51205,78402
+mind,whole-corpus,raw_tf,has-query,200,0.0205,0.0205,49649,75962
+mind,whole-corpus,raw_tf,all-impressions,200,0.0199,0.0199,51205,78402
+mind,whole-corpus,binary,has-query,50,0.0061,0.0062,49649,75962
+mind,whole-corpus,binary,all-impressions,50,0.0059,0.006,51205,78402
+mind,whole-corpus,binary,has-query,100,0.0111,0.0112,49649,75962
+mind,whole-corpus,binary,all-impressions,100,0.0108,0.0108,51205,78402
+mind,whole-corpus,binary,has-query,200,0.0184,0.0185,49649,75962
+mind,whole-corpus,binary,all-impressions,200,0.0179,0.018,51205,78402
