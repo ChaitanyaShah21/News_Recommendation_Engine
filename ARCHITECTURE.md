@@ -1606,3 +1606,80 @@ has 702,005 users, 29,108 of them cold-start (1.2%). EB-NeRD has 134 articles wi
 title nor subtitle, which embed to a vector of the empty string — they appear as a
 candidate **0 times** and in a user history 171 times out of ~67 million, so they are
 inert; counted rather than handled.
+
+---
+
+### Q5 — the submission format, and the one bug it invites
+
+Not a decision; a specification we had to recover, plus the failure mode it sets up. Both
+competition pages render as an empty JavaScript shell, so the guidelines were pulled from
+Codabench's API (`/api/competitions/{id}/`, whose `pages` field carries the real HTML).
+
+Both leaderboards want the same line format:
+
+```
+<impression_id> [r1,r2,...,rn]
+```
+
+and differ in exactly one visible detail, which is enough to waste an upload:
+
+| | MIND (13967) | EB-NeRD (2469) |
+|---|---|---|
+| File inside the zip | `prediction.txt` (**singular**) | `predictions.txt` (**plural**) |
+| Zip contents | nothing but that file — no folders, no `__MACOSX` | same |
+| Row order | must match the original bundle | same |
+| Ranks | integers 1..n, 1 = best | same |
+
+**`r_i` is the rank awarded to the candidate at position `i`** — not the identity of the
+article placed at rank `i`. It is the **inverse permutation** of an argsort, not the
+argsort. MIND's own worked example: candidates `N125045 N87192 N73556 N20417`, answer
+`[4,1,3,2]`, i.e. N87192 (position 2) came first.
+
+This is the sharpest silent-failure in the whole project. `np.argsort(-scores) + 1`
+produces a file with the correct line count, the correct row order, and integers 1..n on
+every line — it passes every structural check that can be written — and scores
+approximately random. The leaderboard returns one number, so there is no signal
+distinguishing "our model is weak" from "our ranks are inverted".
+
+Three defences, in increasing order of how much they would have caught:
+
+1. `rank_vector` is four lines, isolated, with the inversion explained in a comment.
+2. Its tests are pinned to **both competitions' own published worked examples**, plus a
+   derived round-trip check (reconstruct the ranking from the rank vector and compare
+   against sorting by score) so a mis-transcribed example cannot validate a wrong
+   implementation, plus an explicit assertion that the correct output *differs* from the
+   argsort spelling.
+3. `scripts/validate_submission.py` re-reads the raw bundle and checks line *i* against
+   impression *i*'s own id and candidate count, before anything is uploaded.
+
+**A documentation correction worth recording**, because it is the second instance of the
+same failure in this project. Both pages state per-day submission caps — "at most one
+submission each day" (MIND), five (EB-NeRD). Those are **live-competition limits**, and
+both competitions ended years ago; the current limit is 10/day on both. Caught by
+Chaitanya against the page text on 2026-08-25. D20's inverted ONNX-versus-PyTorch
+recommendation came from exactly this: a figure that was true when written, believed
+without re-checking. The generalisation for the design note is that **stale documentation
+fails silently in the direction of over-caution**, which is cheap here and was expensive
+in D20.
+
+**What we submit, and why it is not a new model.** The submission scorer is
+`score_semantic`, imported unchanged from Q4.2 — semantic re-ranking measured best on
+both datasets (MIND AUC 0.6338, EB-NeRD 0.5331), and it is our best *honest* system in
+Q9's sense: no serving-time feature, no future-window counting. The submission task **is**
+the Q4.2 re-ranking task on a different split, which is why Phase 4 fed Phase 5 directly.
+D23's pessimistic tie policy deliberately does not carry over: it works by consulting
+labels, which this split does not have and which we must not want.
+
+**Three memory decisions the 13.5 M-row split forced** (all measured, all under D29's
+~2.5 GB budget):
+
+1. **Impressions are never materialised.** The frame is sliced in chunks and each chunk's
+   lines are appended immediately. Verified cheap rather than assumed: a 50,000-row slice
+   at offset **13,000,000** costs **0.28 s**, and at offset 2,000,000 on MIND's CSV
+   **0.33 s** — so deep offsets do not re-scan and the loop is O(n), not O(n²).
+2. **User vectors are built in batches into an on-disk memmap.** EB-NeRD's 807,677 users
+   × 384 float32 is 1.24 GB resident otherwise.
+3. **The scoring matrix is restricted to articles that actually appear as a candidate** —
+   10,451 of 125,541 for EB-NeRD, 30,043 of 120,961 for MIND. The score block is
+   (batch_users × n_candidates), so this is a ~12× cut on the dominant term, and it
+   changes no result: an article that is never a candidate can never be scored.

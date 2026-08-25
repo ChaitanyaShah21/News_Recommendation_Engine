@@ -653,3 +653,50 @@ group (every metric becomes a lower bound), *optimistic* first, and both are rep
 the gap between them measures how much tie handling matters. Ties are detected by exact
 float equality, which catches the structurally important group — candidates sharing no
 term with the query, scoring exactly 0.0 — and not near-ties differing by float noise.
+
+---
+
+### Rank vector (and why it is the *inverse* of a sorted order)
+**Plain:** A judge at a dog show can write the results two ways. Either *"first place:
+the poodle; second place: the beagle"* — a list of winners in order. Or she walks down the
+line of dogs in the order they happen to be standing and writes a number on each one's
+collar: *"you got 2nd, you got 1st, you got 3rd"*. Both describe the same result. They are
+different pieces of paper, and handing in the wrong one is not obviously wrong to look at
+— it is still a list of numbers 1, 2, 3 with none repeated.
+
+Both Codabench leaderboards want the **collar numbers**, in the order the dogs were
+standing.
+
+**Technical:** given per-candidate scores `s` of length n, the submission line is a vector
+`r` where `r[i]` is the rank of candidate `i` in its **original position** in
+`article_ids_inview` / `impressions`. This is the inverse permutation of the argsort:
+
+```
+order = argsort(-s)        # order[j] = index of the candidate that finished j-th
+r[order[j]] = j + 1        # write the placing INTO the candidate's own slot
+```
+
+Emitting `argsort(-s) + 1` instead is the classic error. It is *also* a permutation of
+1..n, also has the right length, and also passes every structural validation — so the
+only symptom is a leaderboard score near random, on a channel that returns one number and
+no diagnostics. See `src/newsrec/predict.py::rank_vector`, whose tests are pinned against
+both competitions' published worked examples.
+
+**Related trap in the same family:** `"mind:12345".lstrip("mind:")` returns `"2345"`.
+`str.lstrip` removes *characters in the set*, not the prefix, so it silently corrupts only
+those ids whose digits start with m/i/n/d/: — a partial corruption, which is harder to
+notice than a total one. `removeprefix` is the correct call.
+
+---
+
+### Unlabeled split
+**Plain:** The exam paper with the answer key torn off. You can still write answers on it;
+you just cannot mark it yourself.
+
+**Technical:** the Codabench test bundles carry candidate lists but no clicks — MIND's
+test `behaviors.tsv` has 5 fields instead of 6 with no `-0`/`-1` suffixes, and EB-NeRD's
+test `behaviors.parquet` simply has no `article_ids_clicked` column. Every accuracy metric
+(AUC, MRR, nDCG) is therefore **undefined** on this split, which is the whole reason a
+separate val split exists (D7). D30 represents the missing labels as an **absent column**
+rather than an empty one, so code that reaches for them raises immediately instead of
+averaging over fabricated zeros.
