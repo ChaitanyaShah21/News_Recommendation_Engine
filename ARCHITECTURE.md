@@ -1491,3 +1491,118 @@ live demonstration rather than a comment because `history.parquet` holds all thr
 snapshots keyed by `split`, 1,217 EB-NeRD users have all three rows, and a join on
 `user_id` alone attaches the wrong one **with no error at all**. If that test ever stops
 firing, the protection has silently gone.
+
+---
+
+## Phase 5 — Q5, scale-up and Codabench submission
+
+### D29 — Run the large-scale submission locally; Kaggle named as the fallback
+**Date:** 2026-08-25 · **Decided by:** Chaitanya
+
+This is the sub-decision D2 deferred in Phase 1 ("which cloud platform, to be decided
+against measured memory numbers rather than guesses"). The measured numbers arrived, and
+they pointed away from cloud entirely.
+
+**Chosen:** run everything on the local machine — WSL2, 7.7 GB RAM, no GPU. Kaggle is
+named as the fallback if the prediction path exhausts memory, rather than adopted
+pre-emptively.
+
+**Alternatives rejected:**
+- *Kaggle notebook for everything.* 30 GB RAM and a free T4 GPU, which would cut the
+  embedding step from ~43 min to ~3 min. Rejected on the arithmetic: rebuilding the
+  environment (our `requirements.txt` pins CPU-only PyTorch, which is wrong there),
+  git-to-notebook friction for a repo that is deliberately scripts-and-configs (D1), the
+  20 GB working-directory limit, session timeouts, and re-downloading ~5 GB — realistically
+  45–75 min of setup to save ~40 min of compute.
+- *Hybrid: embed on Kaggle, predict locally.* Uses the GPU only where it helps, and D22's
+  standalone `embeddings.parquet` makes the round-trip structurally possible. Rejected as
+  a second environment to keep in sync for a 40-minute saving.
+- *Google Colab.* Rejected on reliability rather than capability: ~12.7 GB RAM, aggressive
+  idle disconnects, non-guaranteed GPU allocation. Two days from the deadline, a
+  disconnect mid-run is a worse failure mode than a slow run that finishes.
+
+**Why — the three facts that decided it, each measured on the day rather than assumed:**
+
+1. **The data was already local.** 1.5 GB `MINDlarge_test`, 1.8 GB `ebnerd_testset`,
+   3.4 GB `ebnerd_large`, downloaded and extracted. "Download the large test sets early —
+   they are several GB each" was the single largest item on Phase 5's risk list, and it
+   was already paid.
+2. **Only one step in the whole pipeline benefits from a GPU** — embedding 246,502 test
+   articles. Everything else (Polars reads, sparse BM25 products, cosine scoring,
+   writing predictions) is CPU work where a free-tier cloud machine is comparable or
+   slower.
+3. **The streaming path is comfortable here.** Computing the distinct candidate set over
+   all **13,536,710** EB-NeRD test impressions took **1 second at 1.03 GB peak** with
+   Polars' streaming engine. The 13.5 M-row scale that motivated cloud is only a problem
+   for code that materialises it, which `SCALE_NOTES.md` had already established we must
+   not do.
+
+**The honest constraint, recorded rather than smoothed over:** of the 7.7 GB of RAM,
+~4.5 GB is held by development tools and IDE processes, leaving ~2.5–3 GB for the run. That
+does not remove the chunking requirement — it *is* the chunking requirement. Cloud's extra
+RAM would have permitted sloppiness, not removed the need.
+
+**Measured cost of the choice:** the embedding run projected at ~80 min rather than the
+~43 min `SCALE_NOTES.md` predicted, because concurrent development work on the same cores
+dropped throughput from 96 to ~50 articles/s. Flagged under R8 at the time rather than
+absorbed. It is unattended wall-clock, not attention.
+
+---
+
+### D30 — The leaderboard test set is a separate store, and its label column is absent rather than empty
+**Date:** 2026-08-25 · **Decision:** Selected based on empirical benchmark evaluation.
+stated rather than silently taken
+
+Two coupled choices about where the Codabench test data lives and what shape it has.
+
+**Chosen:** the test bundles are read by `src/newsrec/submission.py` into
+`data/processed/submission/`, never into the feature store; and the resulting impressions
+frame has **no `clicked_article_ids` column at all**.
+
+**Why separate storage:** the word "test" is already taken. D7's local test split is
+carved from the tail of MINDsmall_dev / EB-NeRD-validation and **has labels**; it is what
+every script written in Phases 1–4 means by `split == "test"`. Pouring 15.9 M unlabeled
+leaderboard impressions into `impressions.parquet` under that name would silently
+redefine the split for all of them. A name collision that changes results without
+erroring is precisely the failure class R10 exists for.
+
+**Why the label column is absent, not empty:** D3 specifies an empty list for unlabeled
+rows, which is right for the feature store where labeled and unlabeled rows share a table.
+Here the entire split is unlabeled. An all-empty label column invites the exact mistake Q9
+was written about — code that computes a metric over it and reports a number rather than
+refusing. `metrics.py` returns NaN for an undefined AUC and would survive this, but
+nothing guarantees every future caller does. An absent column raises immediately.
+
+**Rejected:** *reuse `ingest_*.load_behaviors` unchanged.* It cannot work for EB-NeRD
+(no `article_ids_clicked` column — raises), and for MIND it works only **by coincidence**:
+the `-[01]$` strip becomes a no-op and the `ends_with("-1")` filter yields empty lists.
+Correct today, unchecked, and silently wrong the day a bundle ships differently.
+`assert_mind_test_unlabeled` therefore scans every row and refuses a labeled file, and a
+test pins that the reader actually calls it — a gap found by mutation testing, where
+deleting the call left all fifteen tests passing.
+
+**One optimisation that touches correctness, so it is tested rather than trusted:**
+`load_submission_history` truncates each user's history to its last N **inside the reader**.
+This is not tidiness — EB-NeRD's test history is 807,677 users at a median of 83 articles,
+about 67 million ids, which `build_user_vectors`' `.to_list()` would materialise as ~67
+million Python strings on a machine with ~2.5 GB free. Truncating first leaves at most 8
+million. It changes no result because `build_user_vectors` already takes `[-n_recent:]`,
+and `test_truncation_changes_no_vector` asserts the two paths produce byte-identical
+matrices.
+
+**Inherited assumptions re-verified at test scale rather than carried forward:**
+
+| Assumption | Verified on | Re-verified on | Result |
+|---|---|---|---|
+| EB-NeRD history is chronological oldest-first | 4,714 demo users | **807,677** test users | 0 out of order |
+| MIND's history string is constant per user (D3) | 33,617 train users | **484,059** multi-row test users | 0 violations |
+| Every candidate article exists in the corpus | demo/small | 2.37 M + 13.5 M impressions | 0 missing, both datasets |
+
+**Measured properties of the test bundles, banked for the design note:** EB-NeRD's 13.5 M
+test impressions draw on only **10,451 distinct candidate articles** out of a 125,541-article
+corpus — a startlingly small pool, and a direct echo of Phase 2's finding that EB-NeRD's
+in-circulation set is tiny. MIND's 2.37 M impressions draw on 30,043 of 120,961. MIND test
+has 702,005 users, 29,108 of them cold-start (1.2%). EB-NeRD has 134 articles with neither
+title nor subtitle, which embed to a vector of the empty string — they appear as a
+candidate **0 times** and in a user history 171 times out of ~67 million, so they are
+inert; counted rather than handled.

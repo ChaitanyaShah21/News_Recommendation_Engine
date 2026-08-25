@@ -132,3 +132,62 @@ That is a direct input to the cloud-platform choice: a GPU turns it into a coupl
 minutes, and it is the only part of the pipeline that would benefit from one.
 
 ---
+
+---
+
+## Phase 5 — what the real test bundles did and did not break
+
+**Measured 2026-08-25 on MINDlarge_test (2,370,727 impressions) and ebnerd_testset
+(13,536,710 impressions), locally, on 7.7 GB of RAM with ~2.5 GB actually free.**
+
+### The 13.5 M-row scare was a materialisation problem, not a size problem
+
+Computing the distinct candidate set across **all 13,536,710** EB-NeRD test impressions —
+roughly 135 million list elements — took **1 second at 1.03 GB peak** using
+`pl.scan_parquet(...).collect(engine="streaming")`. The same question asked eagerly would
+have needed several GB.
+
+This is the concrete form of the note already recorded from Phase 4: the re-ranking path
+breaks on *object overhead*, not compute. Polars' streaming engine never builds the
+intermediate. Any code we write that calls `.to_list()` or holds one small NumPy array per
+impression does, and that is where the 4.5 GB goes.
+
+### The scale factors that actually bit
+
+| Quantity | Dev scale | Test scale | Factor |
+|---|---|---|---|
+| MIND users needing a history read | 33,617 | 702,005 | 21× |
+| EB-NeRD users needing a user vector | 4,714 | 807,677 | 171× |
+| EB-NeRD history entries, untruncated | ~430 K | **~67 M** | 156× |
+| Articles to embed | 77,015 | 246,502 | 3.2× |
+
+**The one that forced a code change is the third.** `build_user_vectors` calls
+`.to_list()` on `history_article_ids`. At 67 million ids that is ~67 million Python
+strings — several GB, on a machine with ~2.5 GB free — for data of which **all but the
+last 10 per user is discarded immediately**. `load_submission_history` therefore truncates
+inside the reader, cutting it to at most 8 million. The function was correct at demo
+scale and correct at test scale; it was only *affordable* at demo scale. That is the
+purest example in this project of behaviour that changes at 170× while the logic stays
+scale-independent.
+
+### Where a GPU would and would not have helped
+
+Only the embedding step: 246,502 articles at ~96 articles/s is ~43 min of CPU, and a free
+T4 does it in ~3. Everything else — the streaming scans above, sparse BM25 products,
+cosine scoring, writing predictions — is unaffected by a GPU. This asymmetry is what
+decided D29, and it is worth stating in the design note because "use free-tier GPUs" is
+the spec's own advice and it is only correct for one of the six steps.
+
+**Observed, and worth a sentence of its own:** the embedding run's throughput fell from
+the 96 articles/s measured in Phase 3 to **~50** when development work ran concurrently on
+the same cores — a ~1.9× slowdown from nothing but contention. Single-machine benchmarks
+that ignore what else is running on the box are optimistic by roughly a factor of two.
+
+### A finding, not just a constraint
+
+EB-NeRD's 13.5 M test impressions draw on only **10,451 distinct candidate articles** out
+of a 125,541-article corpus (8.3%). MIND's 2.37 M impressions draw on 30,043 of 120,961
+(24.8%). The scoring work is therefore bounded by the *candidate pool*, not the corpus:
+we must embed the corpus once, but the score matrix that matters is tiny. This is the
+same structural fact Phase 2 found from the other direction — EB-NeRD's in-circulation
+set is small — arriving here as a compute budget rather than a recall ceiling.

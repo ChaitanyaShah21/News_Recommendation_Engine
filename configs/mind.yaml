@@ -4,3 +4,10 @@
 # for how access was obtained; scripts/build_pipeline.py will guide you if
 # these files aren't found here.
 raw_root: data/raw/mind
+
+# Phase 5 / Q5 only. The unlabeled MINDlarge_test bundle the Codabench
+# leaderboard scores against - 120,961 articles, 2,370,727 impressions.
+# Kept as a separate key from raw_root because this is NOT part of the
+# train/val/test feature store: our own "test" split (D7) is carved from
+# MINDsmall_dev's tail and means something completely different.
+test_root: data/raw/mind/MINDlarge_test

@@ -38,15 +38,21 @@ def main() -> int:
     parser.add_argument("--limit", type=int, default=None,
                         help="embed only the first N articles (for timing runs)")
     parser.add_argument("--output", type=Path, default=OUTPUT)
+    # Phase 5: the same embedding job has to run over the leaderboard test
+    # corpora, which live outside the feature store by design (see
+    # src/newsrec/submission.py). One flag rather than a second near-identical
+    # script - the work is byte-for-byte the same, only the input corpus differs.
+    parser.add_argument("--articles", type=Path, default=ARTICLES,
+                        help="articles parquet to embed (default: the feature store)")
     args = parser.parse_args()
 
-    if not ARTICLES.exists():
-        print(f"error: {ARTICLES} not found.\n"
+    if not args.articles.exists():
+        print(f"error: {args.articles} not found.\n"
               f"Run `python scripts/build_pipeline.py` first to build the feature store.",
               file=sys.stderr)
         return 1
 
-    articles = pl.read_parquet(ARTICLES).filter(pl.col("dataset").is_in(args.datasets))
+    articles = pl.read_parquet(args.articles).filter(pl.col("dataset").is_in(args.datasets))
     if args.limit:
         articles = articles.head(args.limit)
     if articles.is_empty():

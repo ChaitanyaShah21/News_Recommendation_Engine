@@ -2,3 +2,10 @@
 # validation/ subdirectories. Direct download, no login required - see
 # A1.md's Part 0 for the wget command.
 raw_root: data/raw/ebnerd/ebnerd_demo
+
+# Phase 5 / Q5 only. The unlabeled ebnerd_testset bundle the RecSys 2024
+# leaderboard scores against - 125,541 articles, 13,536,710 impressions,
+# 807,677 users' history. Note the doubled directory name: the zip extracts
+# to ebnerd_testset/ebnerd_testset/. Same reasoning as mind.yaml's test_root -
+# this is not the "test" split of the feature store.
+test_root: data/raw/ebnerd/ebnerd_testset/ebnerd_testset
