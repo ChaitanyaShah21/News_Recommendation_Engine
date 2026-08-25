@@ -1368,3 +1368,126 @@ never as evidence popularity works.
 MIND's exposure slice excludes **7,209 impressions (14.5%)** whose clicks straddle the
 boundary — a direct consequence of 29.3% of MIND impressions carrying multiple clicks, and
 a real cost of refusing to invent a majority rule. EB-NeRD, at 99.5% single-click, loses 20.
+
+---
+
+## Q9 — anti-gaming: the serving-time ablation and the leakage test
+
+### D28 — Ablation design: add an unavailable feature and price it
+**Date:** 2026-08-25 · **Decision:** Selected based on empirical benchmark evaluation.
+rather than silently taken
+
+Q9 asks to *"report metrics with and without features unavailable at serving time"*.
+The direction matters and is easy to invert: the exercise is **not** to strip legitimate
+features out, it is to **add an illegitimate one and measure how much it inflates the
+score**, so the design note can say what a leak is *worth* here instead of asserting that
+leaks are bad.
+
+The test applied for "available at serving time" is: *could this number have been computed
+at the moment the recommendation was made?* — not "is it in the file", since the file
+contains the whole logged history including things that had not happened yet.
+
+Five arms, run through the Q4 harness unchanged:
+
+| arm | serving time | feature |
+|---|---|---|
+| popularity (train) | safe | click counts from the training window |
+| popularity (FUTURE) | **leak** | click counts from the window being evaluated |
+| semantic | safe | the Q3 scorer — our best honest system |
+| semantic + seen-before | safe | plus "has this user already read this candidate" |
+| semantic + FUTURE pop | **leak** | plus val-window click counts |
+
+The two popularity arms are the cleanest comparison available: identical algorithm,
+identical candidates, differing **only** in whether the clicks being counted had happened
+yet. Blending is rank-based (each score vector converted to within-impression ranks in
+[0, 1] before combining), because BM25 runs 0–40, cosine runs [−1, 1] and click counts run
+0–4,316 — added directly, the widest scale would decide the ranking regardless of signal.
+Blend weight is a **stated default of 0.5, not tuned**; tuning it would make this a
+system-design exercise rather than an ablation.
+
+`future_click_counts` is quarantined in `ablation.py`, and a test asserts **no other file
+in the package references it**. Its safe counterpart `rerank.train_click_counts` raises on
+any non-train split; a test pins that asymmetry so a well-meaning "consistency" edit
+cannot disarm either side.
+
+### Q9 measured results (val, macro, has-query slice, 1,000-resample 95% CIs)
+
+| Dataset | arm | AUC | Δ vs semantic |
+|---|---|---|---|
+| MIND | popularity (train) · safe | 0.5423 [0.5400, 0.5446] | −0.0915 |
+| MIND | **popularity (FUTURE) · LEAK** | **0.6102 [0.6076, 0.6127]** | −0.0236 |
+| MIND | semantic · safe | 0.6338 [0.6312, 0.6364] | — |
+| MIND | semantic + seen-before · safe | 0.6339 [0.6312, 0.6365] | **+0.0001** |
+| MIND | **semantic + FUTURE pop · LEAK** | **0.6572 [0.6546, 0.6597]** | **+0.0234** |
+| EB-NeRD | popularity (train) · safe | 0.4647 [0.4628, 0.4665] | −0.0684 |
+| EB-NeRD | **popularity (FUTURE) · LEAK** | **0.6657 [0.6613, 0.6696]** | **+0.1326** |
+| EB-NeRD | semantic · safe | 0.5331 [0.5283, 0.5379] | — |
+| EB-NeRD | semantic + seen-before · safe | 0.5314 [0.5266, 0.5361] | **−0.0017** |
+| EB-NeRD | **semantic + FUTURE pop · LEAK** | 0.5872 [0.5826, 0.5916] | +0.0541 |
+
+**Finding 18 — moving one counting window is worth more than the entire honest system.**
+On EB-NeRD, popularity counted over the *evaluated* window scores AUC **0.6657** against
+**0.4647** for the identical algorithm counted over training: **+0.2010** from a one-line
+difference. Our best honest system, semantic, scores 0.5331 — so the leaked baseline beats
+it by 0.1326, while semantic beats random by only 0.0344. **On EB-NeRD a single leaked
+feature is worth roughly four times the entire honest modelling effort of Phases 2–4.**
+
+That is the anti-gaming argument in one number. It also explains why leaderboard rank is
+a poor grading signal, and why the assignment says so.
+
+**Finding 19 — a leak is worth most exactly where honest methods are weakest.** The same
+leak buys +0.2010 AUC on EB-NeRD and +0.0679 on MIND — a 3× difference in the value of
+identical cheating. The mechanism is the freshness property found in Phases 2, 3 and 4:
+86.9% of EB-NeRD's val candidates were never clicked during training and 93.5% of its
+clicks are on fresh articles, so *nothing legitimate predicts them* and the future feature
+is the only thing that can. On MIND, training popularity already carries real signal
+(0.5423, interval clear of 0.5), so its future version adds proportionally less.
+
+The uncomfortable corollary is worth stating plainly in the design note: **the datasets
+where leakage is most tempting are precisely the ones where it is hardest to notice**,
+because there is no strong honest baseline whose absence would look suspicious.
+
+**Finding 20 — the legitimate feature buys essentially nothing, and its sign flips.**
+"Has this user already read this candidate" is real signal — such a candidate is clicked
+3.5× more often than average on MIND and 0.49× on EB-NeRD. Added to semantic it moves AUC
+by **+0.0001 (MIND)** and **−0.0017 (EB-NeRD)**, both inside the confidence intervals.
+
+Two reasons, both worth reporting:
+1. **It is too rare to matter in aggregate.** Only 0.055% (MIND) / 0.959% (EB-NeRD) of
+   candidates are already-read, so a large per-candidate effect on a tiny slice is a
+   negligible effect on the mean.
+2. **The blend applies one positive weight to a feature whose sign is opposite on the two
+   datasets.** On EB-NeRD already-read candidates are clicked *half* as often, so boosting
+   them is actively wrong there — and the arm faithfully reports the small loss rather
+   than being quietly re-specified per dataset. A single global weight is wrong for at
+   least one of the two datasets, which is itself the finding.
+
+Reported as-is: this is what happens when a plausible-looking feature is added without
+checking its direction on each dataset, and it is a far more useful thing to have measured
+than a tuned number would have been.
+
+### `tests/test_no_leakage.py` — what it asserts, and what would catch what
+
+Twelve tests across five groups. Leakage is the failure mode this project is least able to
+detect by inspection, because **its only symptom is that the numbers get better** — the one
+outcome nobody investigates. So it is asserted rather than observed.
+
+| group | asserts |
+|---|---|
+| **Temporal** | the availability predicate is `first_seen < T`, strictly — an article first appearing *in the impression being predicted* is not available to it; availability is monotone in time; `first_seen` is the earliest appearance, not the latest |
+| **Label-free** | availability ignores clicks entirely (constructed so a clicks-derived implementation gives a *different* answer, not merely a slower one); slice exposure is counted from candidates; `train_click_counts` raises on any non-train split |
+| **Split boundary** | `train_max < val_min` and `val_max < test_min` on the real store, for both datasets |
+| **History snapshot** | no history snapshot contains clicks from its own window (observed 0.195–0.578%, asserted < 5%) |
+| **Scorers are blind** | flipping every label leaves BM25 and semantic scores **byte-identical** |
+
+**Mutation-verified**, because a leakage test that cannot fail is worse than none — it
+provides false assurance. Five deliberate leaks were reintroduced and **all five were
+caught**, including the one that matters most: relaxing `first_seen < T` to `<=`.
+
+**The landmine test.** One test deliberately performs the mis-join that would leak —
+pairing EB-NeRD's **val**-split history with **train** impressions — and asserts that the
+overlap check fires (>90%; measured 99.52%, 22,143 of 22,249 clicks). It is written as a
+live demonstration rather than a comment because `history.parquet` holds all three
+snapshots keyed by `split`, 1,217 EB-NeRD users have all three rows, and a join on
+`user_id` alone attaches the wrong one **with no error at all**. If that test ever stops
+firing, the protection has silently gone.
