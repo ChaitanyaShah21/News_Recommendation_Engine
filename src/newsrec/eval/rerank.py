@@ -66,7 +66,10 @@ class CandidateSet:
             in the platform's own order. That order is preserved rather than
             sorted, because the metrics' tie policy is defined against it.
         labels: per impression, 0/1 aligned position-for-position with
-            `candidate_rows`.
+            `candidate_rows`. **None** for the Phase 5 submission splits, which
+            have no labels at all (D30) - so any metric code reaching for a
+            label on that path fails immediately rather than averaging over
+            fabricated zeros. Every evaluation path always supplies real labels.
         history_len: per impression, the user's history length - carried for
             Q4.3's cold-start-versus-warm slice so it need not be re-derived.
     """
