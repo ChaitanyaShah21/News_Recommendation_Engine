@@ -1,4 +1,9 @@
-"""Consolidate the per-run recall CSVs into one table with a random baseline.
+"""Consolidate every per-run recall CSV - BM25 and semantic - into one table.
+
+This is where Q3.5's lexical-vs-semantic comparison actually gets made, which is
+why it reads both methods' outputs rather than one. The `query` column names the
+method: `raw_tf`/`binary` are BM25 (D16's ablation), `semantic` is the embedding
+run (D20/D21).
 
 An absolute recall@K means little on its own: restricting the candidate pool
 (D19) raises recall and raises random-chance recall at the same time. Without
@@ -9,7 +14,7 @@ The baseline is the expected recall of drawing K uniformly from whatever pool
 that run retrieved from - the whole corpus, or per-impression the set already
 in circulation at that impression's time bucket.
 
-    python scripts/summarise_bm25_recall.py
+    python scripts/summarise_recall.py
 """
 
 from __future__ import annotations
@@ -23,7 +28,7 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 import numpy as np  # noqa: E402
 import polars as pl  # noqa: E402
 
-from newsrec.retrieval import bm25_search  # noqa: E402
+from newsrec.retrieval import availability  # noqa: E402
 
 PROCESSED = REPO_ROOT / "data" / "processed"
 REPORTS = REPO_ROOT / "reports"
@@ -40,7 +45,7 @@ def random_baselines(dataset: str, split: str, bucket: str = "1h") -> dict:
     )
     article_ids = articles.get_column("article_id").to_list()
 
-    first_seen = bm25_search.first_seen_times(impressions)
+    first_seen = availability.first_seen_times(impressions)
     seen_at = dict(
         zip(
             first_seen.get_column("article_id").to_list(),
@@ -48,7 +53,7 @@ def random_baselines(dataset: str, split: str, bucket: str = "1h") -> dict:
         )
     )
     article_first_seen = np.array(
-        [seen_at.get(a) or np.datetime64("2999-01-01") for a in article_ids],
+        [seen_at.get(a) or availability.NEVER_SEEN for a in article_ids],
         dtype="datetime64[us]",
     )
 
@@ -81,9 +86,18 @@ def random_baselines(dataset: str, split: str, bucket: str = "1h") -> dict:
 
 
 def main() -> int:
-    frames = [pl.read_csv(p) for p in sorted(REPORTS.glob("bm25_recall_*_val_*.csv"))]
+    paths = sorted(REPORTS.glob("bm25_recall_*_val_*.csv")) + sorted(
+        REPORTS.glob("semantic_recall_*_val_*.csv")
+    )
+    # Guard against the summary silently under-reporting: a missing run shows up
+    # as absent rows in the final table, which is exactly how four EB-NeRD rows
+    # went missing in Q2 (see PROGRESS.md's error log).
+    print(f"reading {len(paths)} per-run CSVs:")
+    for p in paths:
+        print(f"  {p.name}")
+    frames = [pl.read_csv(p) for p in paths]
     if not frames:
-        print("No per-run CSVs found; run scripts/run_bm25_recall.py first.")
+        print("No per-run CSVs found; run the run_*_recall.py scripts first.")
         return 1
 
     table = pl.concat(frames, how="diagonal").filter(pl.col("slice") == "has-query")
@@ -116,7 +130,7 @@ def main() -> int:
             f"{row['lift_over_random']:>6.2f}x"
         )
 
-    out_path = REPORTS / "bm25_recall_summary.csv"
+    out_path = REPORTS / "recall_summary.csv"
     table.sort("dataset", "pool", "query", "k").write_csv(out_path)
     print(f"\nwrote {out_path.relative_to(REPO_ROOT)}")
     return 0

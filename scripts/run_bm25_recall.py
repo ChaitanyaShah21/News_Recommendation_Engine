@@ -26,7 +26,7 @@ import numpy as np  # noqa: E402
 import polars as pl  # noqa: E402
 
 from newsrec.eval.recall import recall_at_k  # noqa: E402
-from newsrec.retrieval import bm25, bm25_search  # noqa: E402
+from newsrec.retrieval import availability, bm25, bm25_search  # noqa: E402
 
 PROCESSED = REPO_ROOT / "data" / "processed"
 K_VALUES = (50, 100, 200)
@@ -35,47 +35,24 @@ K_VALUES = (50, 100, 200)
 def build_availability(
     dataset: str, impressions: pl.DataFrame, index, bucket: str
 ):
-    """D19: per time-bucket masks of which articles were already in circulation.
+    """D19 masks for BM25, in the float32 0/1 form its multiplicative mask needs.
 
-    Returns:
-        bucketed: `impressions` with a `bucket_start` column added.
-        bucket_id: bucket_start -> position in `masks`.
-        masks: one float32 0/1 array per bucket, over article rows, 1 where the
-            article had already appeared in the impression log before that
-            bucket began.
+    The logic itself now lives in `newsrec.retrieval.availability`, shared with
+    semantic retrieval - two copies would drift, and a fix applied to one and not
+    the other would silently corrupt Q3.5's lexical-vs-semantic comparison.
 
-    The masks come from `first_seen < bucket_start` over the whole impression
-    log for this dataset - see `first_seen_times` for why that reads no future
-    information, and why the `<` must never become `<=`.
+    The cast to float32 is here rather than there because the two retrievers mask
+    differently: BM25 multiplies by 0/1 (correct, since 0 is its minimum possible
+    score), while dense cosine scoring must mask with -inf (0 is mid-range there,
+    not the floor).
     """
     all_impressions = pl.read_parquet(PROCESSED / "impressions.parquet").filter(
         pl.col("dataset") == dataset
     )
-    first_seen = bm25_search.first_seen_times(all_impressions)
-
-    seen_at = dict(
-        zip(
-            first_seen.get_column("article_id").to_list(),
-            first_seen.get_column("first_seen").to_list(),
-        )
+    bucketed, bucket_id, masks = availability.build_availability(
+        all_impressions, impressions, index.article_ids, bucket
     )
-    # Articles that never appear in any candidate list are never available.
-    # They cannot be clicked either, so excluding them removes only noise.
-    article_first_seen = np.array(
-        [seen_at.get(a) or np.datetime64("2999-01-01") for a in index.article_ids],
-        dtype="datetime64[us]",
-    )
-
-    bucketed = impressions.with_columns(
-        pl.col("timestamp").dt.truncate(bucket).alias("bucket_start")
-    )
-    starts = sorted(bucketed.get_column("bucket_start").unique().to_list())
-    bucket_id = {start: i for i, start in enumerate(starts)}
-    masks = [
-        (article_first_seen < np.datetime64(start, "us")).astype(np.float32)
-        for start in starts
-    ]
-    return bucketed, bucket_id, masks
+    return bucketed, bucket_id, [m.astype(np.float32) for m in masks]
 
 
 def run_dataset(

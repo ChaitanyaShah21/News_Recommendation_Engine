@@ -294,28 +294,6 @@ def retrieve(
     return results
 
 
-def first_seen_times(impressions: pl.DataFrame) -> pl.DataFrame:
-    """When each article first appeared in *any* impression's candidate list.
-
-    This is the availability signal D19 uses, and it works for both datasets -
-    unlike `published_time`, which is null for 100% of MIND.
-
-    On leakage: the table is computed over the whole impression log, including
-    future splits, but it is only ever consulted as `first_seen < T`. That
-    predicate is knowable at time T - either the article had already been shown
-    to someone before T or it had not - and it reads no click labels. What it
-    must never become is `first_seen <= T` or a filter on articles that will be
-    clicked, both of which would import the future.
-    """
-    return (
-        impressions.select("candidate_article_ids", "timestamp")
-        # empty_as_null is explicit because its default flips in Polars 2.0.
-        # Either value is correct here - the drop_nulls below removes the null
-        # row an empty candidate list would produce - but pinning it means the
-        # upgrade cannot silently change what this returns.
-        .explode("candidate_article_ids", empty_as_null=True)
-        .drop_nulls("candidate_article_ids")
-        .group_by("candidate_article_ids")
-        .agg(pl.col("timestamp").min().alias("first_seen"))
-        .rename({"candidate_article_ids": "article_id"})
-    )
+# Moved to newsrec.retrieval.availability when Q3 needed the same logic.
+# Re-exported so existing imports and tests keep working unchanged.
+from newsrec.retrieval.availability import first_seen_times  # noqa: E402,F401

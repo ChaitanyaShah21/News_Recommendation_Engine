@@ -742,4 +742,85 @@ BM25, and must be applied *before* top-K rather than after.
 
 ---
 
+## Q3.5 — lexical versus semantic: the measured comparison
+
+Not a decision; the answer Q3.5 asks for. Feeds the design note directly.
+
+Both methods were run through the *same* harness under the *same* constraints — D12's
+N = 10, D15's history exclusion, D17's cold-start policy, D18's macro headline, D19's two
+candidate pools — so the only thing varying is the matching function. `run_semantic_recall.py`
+is deliberately the same shape as `run_bm25_recall.py`, and `availability.py` was extracted
+so both call one implementation rather than two copies that could drift.
+
+**recall@200, macro, has-query slice, val:**
+
+| Dataset | Pool | BM25 | Semantic | Δ | BM25 lift | Semantic lift |
+|---|---|---|---|---|---|---|
+| MIND | whole corpus | 2.05% | **2.17%** | +6% | 6.69× | **7.08×** |
+| MIND | available | 3.95% | **5.41%** | **+37%** | 4.19× | **5.74×** |
+| EB-NeRD | whole corpus | 2.45% | **2.65%** | +8% | 1.44× | **1.56×** |
+| EB-NeRD | available | 7.27% | **8.57%** | +18% | 1.07× | **1.26×** |
+
+**Finding 1 — semantic wins at depth, and BM25's advantage decays with K.**
+
+| | K=50 | K=100 | K=200 |
+|---|---|---|---|
+| MIND available, BM25 | 7.81× | 5.73× | 4.19× |
+| MIND available, semantic | 7.93× | 6.89× | **5.74×** |
+| EB-NeRD available, BM25 | 1.21× | 1.18× | **1.07×** |
+| EB-NeRD available, semantic | 1.27× | 1.28× | **1.26×** |
+
+On EB-NeRD's in-circulation pool BM25 is essentially at chance by K=200 (1.07×) while
+semantic holds 1.26×. Mechanism: BM25 ranks only articles sharing a term with the query
+and runs out of signal below the top few dozen; cosine similarity ranks the *entire*
+corpus meaningfully, so its tail degrades more slowly. This is the argument for using the
+two as complementary candidate generators rather than choosing between them.
+
+**Finding 2 — the one slice where lexical wins.** EB-NeRD, whole corpus, K=50: BM25 0.77%
+(raw) / 0.81% (binary) against semantic's 0.63%. Shallow retrieval over a large pool of
+short Danish headlines favours exact term overlap. It is the only one of twelve
+configurations where BM25 leads, and Q3.5 asks specifically "on which slices?".
+
+**Finding 3 — content-based retrieval is blind to time, and this is not a BM25 property.**
+Freshness (first appearance in the impression log on/after the val window start;
+`published_time` is null for 100% of MIND so first-seen is the proxy):
+
+| | corpus | semantic top-200 | actual clicks |
+|---|---|---|---|
+| MIND | 10.9% | 12.3% | 13.7% |
+| EB-NeRD | 33.5% | **31.9%** | **93.5%** |
+
+Semantic's top-200 reproduces the corpus's own freshness profile while 93.5% of real
+EB-NeRD clicks are fresh — the same shape Q2 found for BM25. Neither term overlap nor
+cosine similarity contains a time term, so **neither can be tuned toward freshness**; it
+must be handled outside the scoring function (D19's pool restriction) or not at all.
+Phase 2 could only claim this about BM25; running a completely different matching function
+and getting the same profile generalises it to content-based retrieval as such.
+
+MIND's clicks are only mildly fresh-skewed (13.7% against a 10.9% baseline), which is why
+pool restriction helps it far less than it helps EB-NeRD — and is a real dataset
+difference to report rather than a wrinkle to smooth over.
+
+**Finding 4 — mean pooling's characteristic failure, observed not hypothesised.** MIND
+user `mind:U13132` read three political stories and one about a Starbucks gingerbread
+latte. Semantic retrieval returned **five Popeyes chicken-sandwich articles** and nothing
+political. One click in ten hijacked the whole recommendation.
+
+The mechanism is sharper than "the mean lands between the topics". MIND's fast-food
+articles form a *dense* cluster of near-duplicates; political articles are spread out.
+Nearest-neighbour search is won by dense regions, so a mean sitting closer to politics
+overall still finds more neighbours inside the tight food cluster. **BM25 does not have
+this failure** — a bag of words from ten titles still matches political vocabulary
+strongly. This is the concrete cost of representing a user as a single point, and the
+argument for either multi-vector user representations or interest clustering, neither of
+which is in scope here.
+
+**Finding 5 — the dataset asymmetry is a property of the data, not the method.** MIND lifts
+run 4–8× and EB-NeRD's 1.1–1.6× for *both* methods. EB-NeRD's available pool is small
+(~2,478–3,385 articles per hour) and its clicks are overwhelmingly fresh, so there is
+little room for content matching to discriminate. MIND's available pool is ~21,000, leaving
+far more for either method to work with.
+
+---
+
 _Further decisions appended as they are made._

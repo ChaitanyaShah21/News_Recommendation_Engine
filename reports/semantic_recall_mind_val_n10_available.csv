@@ -1,0 +1,7 @@
+dataset,pool,query,slice,k,recall@k (macro),recall@k (micro),impressions,clicks
+mind,available,semantic,has-query,50,0.0187,0.0185,49649,75962
+mind,available,semantic,all-impressions,50,0.0182,0.0179,51205,78402
+mind,available,semantic,has-query,100,0.0325,0.0323,49649,75962
+mind,available,semantic,all-impressions,100,0.0315,0.0313,51205,78402
+mind,available,semantic,has-query,200,0.0541,0.0538,49649,75962
+mind,available,semantic,all-impressions,200,0.0525,0.0521,51205,78402

@@ -1,0 +1,7 @@
+dataset,pool,query,slice,k,recall@k (macro),recall@k (micro),impressions,clicks
+mind,whole-corpus,semantic,has-query,50,0.0066,0.0064,49649,75962
+mind,whole-corpus,semantic,all-impressions,50,0.0064,0.0062,51205,78402
+mind,whole-corpus,semantic,has-query,100,0.0123,0.0122,49649,75962
+mind,whole-corpus,semantic,all-impressions,100,0.012,0.0118,51205,78402
+mind,whole-corpus,semantic,has-query,200,0.0217,0.0216,49649,75962
+mind,whole-corpus,semantic,all-impressions,200,0.021,0.0209,51205,78402

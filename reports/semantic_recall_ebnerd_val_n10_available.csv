@@ -1,0 +1,7 @@
+dataset,pool,query,slice,k,recall@k (macro),recall@k (micro),impressions,clicks
+ebnerd,available,semantic,has-query,50,0.0216,0.0216,17749,17856
+ebnerd,available,semantic,all-impressions,50,0.0216,0.0216,17749,17856
+ebnerd,available,semantic,has-query,100,0.0435,0.0435,17749,17856
+ebnerd,available,semantic,all-impressions,100,0.0435,0.0435,17749,17856
+ebnerd,available,semantic,has-query,200,0.0857,0.0856,17749,17856
+ebnerd,available,semantic,all-impressions,200,0.0857,0.0856,17749,17856
