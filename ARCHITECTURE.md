@@ -1062,3 +1062,116 @@ Harmless as we use it — val history predicts val impressions, and train preced
 pointing val-split history at train impressions would hand over the answers almost
 perfectly. A concrete assertion the test should carry, and one we would not have thought
 to write without the measurement.
+
+---
+
+### D25 — Beyond-accuracy measured on retrieval output, with both diversity bases reported
+**Date:** 2026-08-25 · **Decided by:** Chaitanya
+
+Two coupled forks, flagged in `PROGRESS.md` two sessions before they were reached.
+
+**Fork A — which output do these metrics describe?** Beyond-accuracy describes a *system's
+own* output. In re-ranking the platform chose the items and we only reordered them, and
+only **6.8% of MIND's corpus (19.2% of EB-NeRD's) ever appears in any val candidate list**
+— so coverage measured there is capped by someone else's recommender.
+
+**Chosen:** the Q2/Q3 retrieval top-K is the headline; the re-ranking numbers are computed
+too, to *show* that cap rather than assert it. Accuracy metrics stay on re-ranking, since
+that is the only place labels exist. Different metrics on different outputs, stated openly.
+
+**Rejected:** *re-ranking only* (the literal Q4.5 reading) — it would publish a coverage
+figure that measures MSN's recommender; *retrieval only* — cheaper, but then the cap is a
+claim rather than a measurement.
+
+**Fork B — what does `distance(i, j)` mean in intra-list diversity?** The conventional
+choice is cosine distance between article embeddings. But semantic retrieval finds
+articles by *maximising* cosine similarity, so grading it in that space measures it by the
+quantity it exists to minimise: it loses by construction, and the design note would report
+a tautology as a finding.
+
+**Chosen:** report **both** bases — embedding cosine distance and category distance
+(0 if same category, 1 if different; 18 categories on MIND, 25 on EB-NeRD, zero nulls in
+both). The disagreement between them is the diagnosis.
+
+**Rejected:** *embedding only, with a caveat in prose* — the conventional citable metric,
+but a caveat has to carry the entire result and is weaker than a measurement; *category
+only* — fair to every method, but too coarse to separate two different chicken-sandwich
+stories, which is the exact failure mode from Finding 4.
+
+**Why (both forks):** the same argument that made D23's two-bound tie policy worth five
+lines — a single number cannot show its own sensitivity.
+
+---
+
+### Q4.3 — measured results
+
+`scripts/run_beyond_accuracy.py`, val, K = 10. **Read against the Q4.2 accuracy table,
+never alone: the random arm scores best on all three metrics**, so these price what a
+method gave up rather than ranking methods.
+
+| Dataset | Output | Method | ILD-embed | ILD-cat | Novelty | Coverage |
+|---|---|---|---|---|---|---|
+| MIND | retrieval | bm25 | 0.7169 | 0.5892 | 17.718 | 51.02% |
+| MIND | retrieval | semantic | 0.5618 | 0.5001 | 17.724 | **53.21%** |
+| MIND | retrieval | popularity | 0.9003 | 0.8444 | 6.861 | **0.02%** |
+| MIND | retrieval | random | 0.9381 | 0.8009 | 17.882 | 99.96% |
+| MIND | re-rank | bm25 / semantic / popularity / random | 0.93 / 0.89 / 0.94 / 0.94 | 0.86 / 0.84 / 0.89 / 0.89 | 16.0 / 15.8 / 13.8 / 16.0 | **4.26 / 4.11 / 2.24 / 4.35%** |
+| EB-NeRD | retrieval | bm25 | 0.7482 | 0.6207 | 14.468 | 31.13% |
+| EB-NeRD | retrieval | semantic | 0.4072 | **0.6464** | 14.776 | 14.44% |
+| EB-NeRD | retrieval | popularity | 0.7948 | 0.7853 | 8.444 | **0.25%** |
+| EB-NeRD | retrieval | random | 0.8646 | 0.8571 | 14.829 | 73.69% |
+| EB-NeRD | re-rank | bm25 / semantic / popularity / random | 0.85 / 0.83 / 0.85 / 0.85 | 0.80 / 0.79 / 0.80 / 0.79 | 14.7 / 14.7 / 14.5 / 14.7 | **17.87 / 17.75 / 18.17 / 17.92%** |
+
+Novelty ranges: MIND 6.13–18.20, EB-NeRD 8.01–15.16. Retrieval list counts are 48,593 of
+50,000 MIND users (the 1,407 cold-start users retrieve nothing, so their diversity is
+undefined, not zero) and 1,562 of 1,562 on EB-NeRD.
+
+**Finding 9 — the embedding basis overstates semantic's diversity deficit on both datasets,
+and on EB-NeRD it reverses the sign.**
+
+| semantic ÷ bm25 | embedding basis | category basis |
+|---|---|---|
+| MIND | 0.784 (−21.6%) | 0.849 (−15.1%) |
+| EB-NeRD | **0.544 (−45.6%)** | **1.041 (+4.1%)** |
+
+Reported on the conventional metric alone, the design note would have said "semantic
+retrieval produces markedly less diverse lists" — true-sounding, and on EB-NeRD *false in
+direction*. Category diversity, which owes nothing to the embedding space, says semantic's
+EB-NeRD lists span topics slightly better than BM25's. The honest statement is the pair:
+**semantic's lists are tightly packed in embedding space while covering a comparable
+spread of categories** — it repeats *within* topics rather than collapsing to one, which
+is exactly what Finding 4's five Popeyes articles look like.
+
+The two datasets differ, and that difference is real rather than noise: on MIND semantic
+is less diverse on both bases, on EB-NeRD only on one. Reporting one basis would have
+hidden that a method's diversity behaviour is dataset-dependent.
+
+**Finding 10 — coverage is where the methods actually separate, and they separate by 3
+orders of magnitude.** On MIND retrieval: popularity **0.02%** (about 13 articles served
+to all 50,000 users), semantic 53.21%, bm25 51.02%, random 99.96%. Popularity is the
+dead-stock warehouse quantified — an entire recommender whose whole catalogue is thirteen
+articles. It also scores novelty 6.861 against a corpus floor of 6.13, confirming by a
+second route that it is serving nothing but the head.
+
+The direction flips between datasets: on MIND semantic covers slightly *more* than BM25
+(53.21% vs 51.02%), on EB-NeRD less than half as much (14.44% vs 31.13%). So semantic's
+accuracy win is bought with corpus coverage on EB-NeRD and essentially free on MIND.
+
+**Finding 11 — novelty barely discriminates between content methods, and the reason is
+structural.** MIND: bm25 17.718, semantic 17.724, random 17.882, against a ceiling of
+18.20. EB-NeRD: 14.468 / 14.776 / 14.829 against 15.16. All three sit near the ceiling
+because **88.2% of MIND's corpus was never clicked during training**, so almost anything
+retrieved is "novel" by self-information. Only popularity — which explicitly targets the
+head — separates at all.
+
+That does not make the metric worthless: it is positive evidence that **neither BM25 nor
+semantic carries a popularity bias**, which is a claim worth having rather than assuming.
+But it cannot rank the content methods, and reporting a 0.006 difference between BM25 and
+semantic as if it meant something would be over-reading a long tail.
+
+**Finding 12 — Fork A demonstrated rather than argued.** On the re-ranking rows, four
+completely different scorers land within 0.4 percentage points of each other on EB-NeRD
+coverage (17.75–18.17%) and within 0.02 on category diversity. On the retrieval rows the
+same four methods span **0.02% to 99.96%**. Re-ranking beyond-accuracy measures the
+platform's candidate generator, not the scorer sitting behind it — which is why the
+headline is measured on retrieval.

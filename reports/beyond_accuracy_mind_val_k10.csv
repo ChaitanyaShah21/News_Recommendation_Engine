@@ -1,0 +1,9 @@
+dataset,output,method,k,ild_embedding,ild_category,novelty,coverage,n_lists,catalogue
+mind,retrieval,bm25,10,0.7169,0.5892,17.718,0.51019,50000,65238
+mind,retrieval,semantic,10,0.5618,0.5001,17.724,0.53205,50000,65238
+mind,retrieval,popularity,10,0.9003,0.8444,6.861,0.00015,50000,65238
+mind,retrieval,random,10,0.9381,0.8009,17.882,0.99965,50000,65238
+mind,re-rank,bm25,10,0.9294,0.8634,16.015,0.0426,51205,65238
+mind,re-rank,semantic,10,0.8901,0.837,15.833,0.04113,51205,65238
+mind,re-rank,popularity,10,0.9358,0.8919,13.833,0.02236,51205,65238
+mind,re-rank,random,10,0.9428,0.8865,16.039,0.04355,51205,65238
