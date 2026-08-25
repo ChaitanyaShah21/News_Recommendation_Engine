@@ -37,10 +37,16 @@ def build_availability(
 ):
     """D19: per time-bucket masks of which articles were already in circulation.
 
-    Returns (task_query_row-ready frame, list of 0/1 masks, bucket column name).
-    The masks are built from `first_seen < bucket_start` over the *whole*
-    impression log for this dataset - see `first_seen_times` for why that reads
-    no future information.
+    Returns:
+        bucketed: `impressions` with a `bucket_start` column added.
+        bucket_id: bucket_start -> position in `masks`.
+        masks: one float32 0/1 array per bucket, over article rows, 1 where the
+            article had already appeared in the impression log before that
+            bucket began.
+
+    The masks come from `first_seen < bucket_start` over the whole impression
+    log for this dataset - see `first_seen_times` for why that reads no future
+    information, and why the `<` must never become `<=`.
     """
     all_impressions = pl.read_parquet(PROCESSED / "impressions.parquet").filter(
         pl.col("dataset") == dataset
