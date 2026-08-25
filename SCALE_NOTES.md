@@ -66,3 +66,29 @@ for a smaller task count, and the cost of that trade is measurable — worth qua
 before assuming hourly is necessary.
 
 ---
+### Exact brute-force search is fine now and is the first thing to break at 10×
+**Observed (2026-08-25, Phase 3, D21):** Q3.2 permits brute force "for small scale", and
+at our scale it is the better choice — exact, so it cannot cost recall, and the whole
+MIND score computation is roughly 10^12 multiply-adds, well under a minute of optimised
+linear algebra. The binding constraint is memory, not arithmetic: a full
+37,777 users x 65,238 articles float32 score matrix is **9.9 GB against 7 GB of RAM**, so
+it must be batched. This is the *same* constraint D14 hit for BM25, arrived at from a
+completely different direction (dense vectors rather than a sparse product).
+
+**What it implies at 10x:** the score matrix is `users x articles`, so it grows with the
+**product** of both, while the embedding matrix itself grows only with `articles x 384`
+(65,238 articles is ~100 MB - trivial, and it stays trivial). Batching hides this until
+the per-batch slice itself stops fitting, at which point the fix is no longer a smaller
+batch but a real ANN (Approximate Nearest Neighbour) index, which trades exactness for a
+sublinear number of comparisons. That is the crossover point where FAISS/ScaNN stop being
+optional. EB-NeRD-large's corpus is 125,541 articles (10.7x the demo's 11,777), which
+moves the matrix but not yet the model.
+
+**Second, less obvious axis:** unlike BM25, embedding *inference* is a one-off cost that
+scales with **articles**, not with impressions or users - and it is CPU-bound here with no
+GPU. That cost is measured separately; the point for Q6 is that lexical and semantic
+retrieval have differently-shaped scaling curves, so "which is cheaper at 10x" has a
+different answer than "which is cheaper now".
+
+---
+

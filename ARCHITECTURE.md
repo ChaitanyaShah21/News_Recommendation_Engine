@@ -1,6 +1,6 @@
 # Architecture & Decision Log
 
-Last updated: 2026-08-21
+Last updated: 2026-08-25
 
 ---
 
@@ -572,6 +572,109 @@ rather than once per impression. Identical numbers; 26% less work on MIND and 12
 EB-NeRD (1,437 users behind 17,749 impressions). This does **not** hold for D19's
 availability runs — what is available changes with time even though the query does not —
 so those score once per (user, hour-bucket) task instead.
+
+---
+
+## Phase 3 — Q3, semantic retrieval (embeddings)
+
+### D20 — Compute our own embeddings with one multilingual model, via `sentence-transformers` on CPU-only PyTorch
+**Date:** 2026-08-25 · **Decided by:** Chaitanya
+
+**Chosen:** `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` — 384
+dimensions, 12 layers, 250,037-token vocabulary, `model_type: "bert"` — run through
+`sentence-transformers==6.0.0` on `torch==2.13.0+cpu`. **The same model for both
+datasets.**
+
+**Alternatives rejected:**
+- *Load provided embeddings instead of computing.* Retired on 2026-08-25 as a
+  **false premise** carried since Phase 0. Neither dataset ships loadable article-text
+  vectors: MIND ships `entity_embedding.vec` (26,904 TransE *knowledge-graph entity*
+  vectors keyed by Wikidata IDs, not articles), and EB-NeRD's `articles.parquet` has no
+  embedding column at all — its provided vectors are separate downloads the spec itself
+  marks *"(optional)"*. Mixing routes across datasets would make Q3.5's cross-dataset
+  comparison uninterpretable, the same objection that killed per-language stemming in D11.
+- *`paraphrase-multilingual-mpnet-base-v2`* — `model_type: "xlm-roberta"`, 768-dim.
+  Matches Q3's second named family literally and is likely somewhat stronger, but doubles
+  vector storage and score-matrix cost and is roughly 3× slower on CPU. Kept as a
+  **one-string swap** if the MiniLM result looks weak; not paid for up front.
+- *`distiluse-base-multilingual-cased-v1`* — the smallest, fastest-looking multilingual
+  option on the sentence-transformers menu. **Rejected on a verified fact: its language
+  list is `ar, zh, nl, en, fr, de, it, ko, pl, pt, ru, es, tr` — 13 languages, no `da`.**
+  It would have embedded Danish without erroring, returning well-formed 512-dim vectors of
+  confident nonsense. See "silent degradation" below.
+- *ONNX Runtime with the int8-quantised export, no PyTorch* (~150 MB total vs ~860 MB).
+  Genuinely attractive and was the initial recommendation, on the belief that PyTorch was
+  an unaffordable download. **Measurement killed that argument** (see below). What
+  remained was ~40 lines of hand-written tokenise → mask → mean-pool → normalise code
+  whose most likely bug — omitting the attention mask, so padding tokens are averaged in —
+  is silent and hits *short* documents hardest, which is exactly our corpus. Not a risk
+  worth taking two days from the deadline.
+- *TF-IDF + truncated SVD, no neural model at all.* Zero install. Deviates from Q3's
+  "BERT/XLM-RoBERTa" wording and learns no cross-lingual meaning. Emergency parachute only.
+
+**Why:** one model across both datasets keeps Q3.5's comparison a comparison of *methods*
+rather than of *setups* — the D11 principle carried forward. `model_type: "bert"` means
+the chosen model satisfies Q3's wording literally, not by analogy.
+
+**On using a library here, when D14 refused one for BM25.** Not an inconsistency. Q2.1
+grades *"build an inverted index"* — the data structure **is** the deliverable, so
+`rank_bm25` would have answered nothing. Q3 names pretrained models and libraries as the
+expected route (*"compute your own using BERT/XLM-RoBERTa"*, *"e.g., FAISS, ScaNN, or
+brute-force"*). Of Q3's five sub-requirements the library supplies only the text→vector
+step; the user representation (Q3.3), D15's exclusion, both candidate pools, recall@K and
+Q3.5's comparison all remain ours.
+
+**Decision input that had to be measured, not assumed.** The route was initially chosen
+against a remembered figure of ~60 KB/s download speed (extrapolated from `scipy` taking
+ten minutes days earlier). Measured on the day: **PyPI 6.1 MB/s, HuggingFace 2.8 MB/s** —
+about 100× faster. That single number inverted the recommendation from ONNX to
+sentence-transformers, because it removed the only argument ONNX was winning on. Recorded
+because it is a clean instance of a decision resting on a stale measurement that nobody
+had re-checked.
+
+**Measured install cost (2026-08-25):**
+
+| Route | Wheels | Model | Total |
+|---|---|---|---|
+| Naive `pip install sentence-transformers` | **2,894 MB** (54 pkgs) | ~470 MB | ~3.4 GB |
+| **Chosen:** torch from the CPU-only index first | ~390 MB (torch 155 MB) | ~470 MB | **~860 MB** |
+| ONNX Runtime, int8 | 31 MB | 118 MB | ~150 MB |
+
+**2,238 MB of the naive route's 2,894 MB are 18 `nvidia-*`/`cuda-*` packages** —
+`nvidia-cublas` alone is 543 MB — downloaded and installed on a machine with no GPU and
+never loaded. `requirements.txt` therefore carries `--index-url
+https://download.pytorch.org/whl/cpu` **above** the `torch==2.13.0+cpu` pin, with
+`--extra-index-url https://pypi.org/simple` for everything else. Verified by a
+from-scratch resolution: 46 packages, **0 CUDA**, torch served by PyTorch's CDN and the
+other 45 by PyPI. Delete those two lines and Q1.5's one-command rebuild silently pulls
+2.9 GB on the next machine.
+
+**Costs accepted:** `.venv` grows to 1.6 GB (against 901 GB free — not a constraint);
+inference is CPU-only, so embedding all 77,015 articles is a measured cost still to be
+established, not an assumption.
+
+---
+
+### D21 — Exact brute-force nearest-neighbour search, not an approximate index
+**Date:** 2026-08-25 · **Decision:** Selected based on empirical benchmark evaluation.
+rather than silently taken
+
+Q3.2 asks for an ANN (Approximate Nearest Neighbour) index and explicitly permits
+*"FAISS, ScaNN, **or brute-force for small scale**"*. We take brute force: one dense
+matrix product `(users × 384) @ (384 × articles)`, batched, then top-K per row.
+
+**Why:** it is *exact*, so unlike an approximate index it cannot cost us recall — which
+matters because recall@K is the number Q3.4 reports and Q3.5 compares. At our scale the
+cost is under a minute of linear algebra. The single real constraint is memory: a
+37,777 × 65,238 float32 score matrix is **9.9 GB against 7 GB of RAM**, so it must be
+batched — the *identical* constraint D14 already forced on BM25, so `bm25_search.py`'s
+batching pattern is reused rather than reinvented.
+
+**Rejected:** a real FAISS index. Defensible and closer to the sub-requirement's first
+example, but costs an extra dependency and install time for a recall *loss*. The
+speed-versus-recall trade-off it represents is recorded in `SCALE_NOTES.md` as a Q6
+"where it breaks at 10×" observation instead — which is where that discussion is actually
+graded.
 
 ---
 

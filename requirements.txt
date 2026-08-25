@@ -3,8 +3,24 @@
 # Add new packages here as later phases need them - never install ad hoc
 # without recording the version, or "one command rebuild" (Q1.5) silently rots.
 
+# --- Index configuration. MUST stay above the torch pin to take effect. ---
+# PyTorch's default PyPI wheel links against CUDA and drags in 18 nvidia-*/cuda-*
+# packages totalling 2,238 MB (measured 2026-08-25) - all of it unusable on this
+# GPU-less machine. The CPU-only index serves a 155 MB wheel with none of it.
+# Remove these two lines and a fresh `pip install -r requirements.txt` silently
+# downloads ~2.9 GB instead of ~390 MB. See D20 in ARCHITECTURE.md.
+--index-url https://download.pytorch.org/whl/cpu
+--extra-index-url https://pypi.org/simple
+
 polars==1.43.2      # DataFrame library - matches the version in the provided notebooks
 pyarrow==25.0.1      # Parquet reading; also what polars uses under the hood for parquet
 pyyaml==6.0.3        # Reads configs/*.yaml - keeps raw-data paths out of code
 scipy==1.18.1        # Sparse matrices = the BM25 inverted index (D14). Pulls in numpy.
 pytest==9.1.1        # Test runner for tests/ - R10's adversarial checks and Q9's leakage test
+
+# --- Phase 3 / Q3: semantic retrieval (D20) ---
+torch==2.13.0+cpu           # CPU-only build; the '+cpu' local version tag is what
+                            # the index-url above serves. Do not drop the suffix.
+sentence-transformers==6.0.0  # Wraps BERT/XLM-RoBERTa text -> vector, which Q3 names
+                            # explicitly. Pulls transformers + tokenizers + scikit-learn.
+
