@@ -92,3 +92,43 @@ different answer than "which is cheaper now".
 
 ---
 
+
+## The re-ranking path is list-of-arrays shaped, and that is what breaks first at 10^7
+
+**Observed (2026-08-25, Phase 4 → 5 handoff, measured not estimated).**
+`rerank.build_candidate_set` on MIND val: **51,205 impressions / 1,895,867 candidates in
+0.9 s**, +0.09 GB — 18.5 µs per impression. Extrapolated to the test bundles:
+
+| | impressions | build time | per-object overhead, **one** list |
+|---|---|---|---|
+| MIND val (measured) | 51,205 | 0.9 s | 0.006 GB |
+| MIND test | 2,370,727 | ~0.7 min | ~0.27 GB |
+| **EB-NeRD test** | **13,536,710** | **~4.2 min** | **~1.52 GB** |
+
+**Compute is not the problem — object overhead is.** A NumPy array carries ~112 bytes of
+Python/array-header overhead regardless of its contents, and the re-ranking path holds
+*three* parallel lists of one small array per impression (`candidate_rows`, `labels`, and
+each method's scores). At 13.5 M impressions that is **~4.5 GB of pure overhead** before a
+single article id is stored, against 7 GB of RAM locally and ~13 GB on a free cloud
+notebook. The actual data — 162 M candidate ids at int32 — is only 0.65 GB.
+
+**Why it was invisible until now:** at 10^4 impressions the overhead is 6 MB and the shape
+is the *right* one, because impressions have genuinely ragged candidate counts (MIND val:
+2 to 295) and a ragged list is the honest representation. The design is not wrong; it is
+correct at the scale it was built for and wrong two orders of magnitude up. That is
+exactly the shape of answer Q6 asks for.
+
+**What Phase 5 must therefore do:** process the test split in **chunks of impressions**,
+writing predictions incrementally, never materialising the whole split. The flat-array
+alternative (`np.concatenate` of all candidates plus an offsets array — the same layout
+`bootstrap_coverage` already uses for its ragged gather) removes the overhead entirely and
+is the right fix if chunking proves awkward, but chunking is smaller and does not require
+rewriting the scorers.
+
+**Second Phase 5 cost, also measured rather than assumed:** article embedding is CPU-bound
+at **96 articles/s** (Phase 3, D22). MIND test ships 120,961 news articles and EB-NeRD
+large 125,541 — **~21 and ~22 minutes of CPU inference each**, ~43 min total, one-off.
+That is a direct input to the cloud-platform choice: a GPU turns it into a couple of
+minutes, and it is the only part of the pipeline that would benefit from one.
+
+---
