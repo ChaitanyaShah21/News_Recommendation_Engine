@@ -678,4 +678,68 @@ graded.
 
 ---
 
+### D22 — Embeddings live in their own `embeddings.parquet`, one vector per row beside its article_id
+**Date:** 2026-08-25 · **Decided by:** Chaitanya
+
+This is the sub-decision D3 deferred in Phase 1 ("where article embeddings live — as
+columns on `articles` or a separate store"), finally answerable now that we know what the
+vectors actually are.
+
+**Chosen:** a fourth file, `data/processed/embeddings.parquet`, with columns
+`(dataset, article_id, embedding: list[f32][384])` — one row per article, **each vector
+in the same row as its own id**.
+
+**Alternatives rejected:**
+- *A list column on `articles.parquet`.* Keeps D9's three-file store exactly as designed.
+  Rejected on a concrete cost: `build_pipeline.py` **rewrites** `articles.parquet` on
+  every run, so vectors there would either be recomputed each rebuild (**2.81 s → ~13
+  min, a 280× regression on the Q1.5 requirement we already built and tested**) or
+  silently destroyed.
+- *`embeddings.npy` + a separate id index.* The format retrieval actually wants — a native
+  contiguous float32 matrix, memory-mappable so 110 MB need never be resident. Rejected
+  because two artifacts can drift: one article added to the store without re-embedding
+  misaligns every vector after it, and the only defence is an id-order assertion someone
+  has to remember to write and keep. Chosen format makes that failure **impossible by
+  construction** rather than caught by vigilance.
+
+**Why:** alignment safety over raw load speed — and the cost of that choice turned out to
+be negligible when measured rather than estimated. The feared conversion overhead
+(Parquet list column → contiguous matrix, via `explode()` + `reshape()`) is **0.6 seconds
+for all 77,015 vectors**, against the 9.9 GB score matrix we already batch. Keeping the
+~13-minute embedding step out of the 2.81 s rebuild is worth far more.
+
+**Stated defaults, not forks** (taken under the (b) pacing agreement, recorded so they are
+not silent):
+- **Document text = title + abstract**, mirroring BM25's document side (D11/Q2.1), and
+  **user vector = last 10 clicked titles**, mirroring D12 — so Q3.5 varies the algorithm
+  and nothing else.
+- **float32, not float16.** Saves 59 MB against 901 GB free; NumPy's float16 matmul
+  typically upcasts internally so it is not even faster, and precision in a 384-term dot
+  product is ranking resolution.
+- **Truncation at 128 subword tokens accepted, not worked around.** Measured: **7.7% of
+  MIND articles exceed the limit but only 1.37% of MIND's total tokens are lost, and
+  0.00% of EB-NeRD's** (max 121 tokens, not one of 11,777 clipped). Danish expands more
+  per word (1.68 vs 1.55 subword tokens per whitespace word) but its articles are short
+  enough that it never binds. A real dataset asymmetry for the Q3.5 write-up, an order of
+  magnitude too small to justify chunk-and-average.
+
+**Verified on the real artifact, not just designed:** 77,015 vectors built in 13.3 min at
+96 articles/s, 110 MB on disk, loading in 0.6 s as a C-contiguous float32 `(77015, 384)`
+matrix; norms min 1.000000 / max 1.000000; and the id order **matches
+`articles.parquet` exactly**. Nearest-neighbour inspection is topically coherent in both
+languages (a Democratic-primary article retrieves five more Trump-vs-Democrats polling
+stories; a Danish ice-hockey story retrieves Danish athlete-career stories).
+
+**Observation banked for Q3.5:** EB-NeRD's nearest-neighbour cosines run materially lower
+than MIND's (0.48–0.52 vs 0.62–0.69). Danish tabloid headlines are short and deliberately
+cryptic — `'LIVE: Nej, nej, nej'` carries almost no topical signal — which is the
+*semantic* echo of the same dataset asymmetry BM25 exposed lexically.
+
+**Every article is its own nearest neighbour at cosine exactly 1.000** (verified). Since
+the mean-pooled user vector is provably the point of maximum average similarity to the
+user's own history, D15's history exclusion binds **more** tightly here than it did for
+BM25, and must be applied *before* top-K rather than after.
+
+---
+
 _Further decisions appended as they are made._

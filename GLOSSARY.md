@@ -473,3 +473,99 @@ sparse against 15.9 GB dense, at 0.0594% density.
 document. Matters here only because our queries are manufactured from click history
 rather than typed. We count it linearly (D16); the alternatives are binary (kept as an
 ablation) and `k₃`-saturated (Robertson's full BM25).
+
+---
+
+## Phase 3 vocabulary — semantic retrieval
+
+### Embedding
+**Plain:** A warehouse with no labels on the shelves, where every article has been placed
+at a spot chosen so that articles about similar things sit near each other. To find things
+like what you read, you stand where your reading sits and grab what is nearby.
+
+**Technical:** A function mapping a piece of text to a fixed-length vector of real
+numbers — 384 of them for our model. Geometric closeness in that space approximates
+semantic similarity. Contrast with BM25's representation, which is *sparse* (65,238 x
+60,951 with 2.36M non-zeros, one dimension per vocabulary term) where this is *dense*
+(77,015 x 384, essentially every entry non-zero). The dense one handles synonyms and
+paraphrase for free but has no drawer to look in for an exact rare term.
+
+---
+
+### Cosine similarity
+**Plain:** How closely two arrows point in the same direction, ignoring how long they are.
+
+**Technical:** `cos(a,b) = (a·b) / (‖a‖‖b‖)`. Three named parts. The **dot product**
+`a·b = Σᵢ aᵢbᵢ` is one number, large when both vectors are large in the same dimensions.
+The **norm** `‖a‖ = √(Σᵢ aᵢ²)` is the vector's length, pure magnitude. **Dividing by both
+norms** strips magnitude out, leaving only the angle: 1 = identical direction,
+0 = perpendicular/unrelated, −1 = opposite. Angle rather than straight-line distance,
+because length tracks incidental things like how long the text is.
+
+---
+
+### L2 normalisation
+**Plain:** Rescaling every arrow to be exactly one unit long, so only direction is left.
+
+**Technical:** Dividing each vector by its own norm, so `‖a‖ = 1` for all. Then cosine
+similarity's denominator is 1 and **cosine collapses into a plain dot product** — which
+turns "rank every article for this user" into one matrix multiplication.
+
+Why it is not optional: `u·a = cos(u,a) × ‖u‖ × ‖a‖`. When ranking all articles for **one**
+user, `‖u‖` is the same constant in every score and cannot reorder anything — but `‖a‖`
+varies per article and distorts the ranking directly. Measured on our model: raw norms
+spread **1.71×**, against a real signal gap of 0.936 (translation pair) versus 0.130 (same
+language, different topic). Enough to reorder results on its own, and the bias is
+*systematic* — the same high-norm articles get promoted into every user's list, which
+would show up in Q4's coverage and diversity metrics as a fake finding.
+
+---
+
+### Mean pooling
+**Plain:** Averaging the positions of the ten articles you last read, and standing there.
+
+**Technical:** The user representation Q3.3 asks for — the component-wise average of the
+embeddings of a user's last N clicked articles. It is the direct analogue of D12's
+"concatenate the last N titles" for BM25, and we reuse N = 10 so Q3.5 varies only the
+algorithm.
+
+**The property that matters, and it is exact:** maximising `Σᵢ cos(u, aᵢ)` over unit
+vectors `u` gives `u ∝ Σᵢ aᵢ` — the normalised mean. So the mean-pooled user vector is
+**precisely the point in the whole space with the highest average similarity to that
+user's own history articles**. The self-match is not emergent as it was with BM25's bag of
+words; it falls out of the arithmetic. Every article is also its own nearest neighbour at
+cosine exactly 1.000 (verified on our corpus). Both facts are why D15's history exclusion
+binds *more* tightly here than it did in Q2, and must be applied before top-K.
+
+**Known weakness:** the mean of vectors pointing different ways lands *between* them, at a
+spot where nothing real may sit. A reader of both football and parliamentary politics gets
+a vector representing neither. BM25 does not have this failure — a union of terms still
+matches football articles *and* politics articles.
+
+---
+
+### ANN (Approximate Nearest Neighbour)
+**Plain:** Instead of measuring the distance to every article in the warehouse, organise it
+into aisles with signs and only search the nearest few. Much faster, but you will miss an
+article sitting just over an aisle boundary.
+
+**Technical:** Methods (FAISS — Facebook AI Similarity Search; ScaNN — Scalable Nearest
+Neighbors) that pre-partition or compress vectors so each query touches a fraction of the
+corpus, reported as a recall-versus-speed curve rather than exact answers. **We use exact
+brute force instead (D21)**, which Q3.2 permits explicitly: one dense matrix product plus
+a top-K, batched. Being exact, it cannot cost us the recall@K that Q3.4 reports. The
+constraint is memory, not arithmetic — a full 37,777 × 65,238 float32 score matrix is
+9.9 GB against 7 GB of RAM.
+
+---
+
+### Subword token
+**Plain:** Models do not read words, they read word-fragments from a fixed list. An unusual
+word gets chopped into several pieces.
+
+**Technical:** The unit a transformer's tokeniser produces. Our model's vocabulary holds
+250,037 of them and it truncates past **128 tokens**, silently. Measured on our corpus:
+MIND averages 1.55 subword tokens per whitespace word and EB-NeRD 1.68 (Danish fragments
+more), so **7.7% of MIND articles exceed the limit — but only 1.37% of MIND's total tokens
+are lost, and 0.00% of EB-NeRD's** (max 121). Accepted rather than worked around; recorded
+because it is a real dataset asymmetry in Q3.5's comparison.
