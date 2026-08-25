@@ -824,3 +824,104 @@ far more for either method to work with.
 ---
 
 _Further decisions appended as they are made._
+
+---
+
+## Phase 4 — Q4, offline evaluation harness (+ Q9 folded in)
+
+### Forced consequence, not a decision: Q4's metrics grade a *re-ranking*, not a retrieval
+**Date:** 2026-08-25
+
+Recorded here because it looks like a fork and is not one. AUC, MRR and nDCG each need a
+per-item clicked/not-clicked label. Whole-corpus retrieval (Q2/Q3) produces top-200 lists
+against 65,238 articles of which only the clicked handful are labelled — the other ~65,000
+were never *shown*, so they are unlabelled, not negative. Treating them as negatives would
+invent ~65,000 facts per impression that the log never recorded.
+
+So the harness scores the platform's own supplied candidate list — MIND's `impressions`
+field, EB-NeRD's `article_ids_inview` — re-ranked by the same two scoring functions Q2 and
+Q3 already built. Q4.5's *"run your evaluation harness on both BM25 and embedding-based
+retrieval results"* means the same scorers, a different candidate set. This is also exactly
+what both Codabench leaderboards consume, so Phase 4 feeds Phase 5 directly rather than
+being a detour. It is the `system design contract` §6 retrieval-vs-re-ranking trap, landing here.
+
+**Measured facts the harness was designed against** (val split, real store):
+
+| | MIND | EB-NeRD |
+|---|---|---|
+| Val impressions | 51,205 | 17,749 |
+| Candidates per impression — min / median / p95 / max | 2 / 22 / 119 / 295 | 5 / 9 / 30 / 90 |
+| Impressions with >1 click | 29.3% | 0.5% |
+| Impressions with 0 clicks **or** all-clicked | 0.0% | 0.0% |
+
+Two consequences carried into the code:
+- **AUC is always defined on our val data** (no impression is all-positive or
+  all-negative), but that is a property of this split, not of the code — so the degenerate
+  case is handled explicitly rather than relied upon. MIND has 2,744 val impressions with
+  only 2 candidates, where AUC is exactly 0 or 1.
+- **nDCG@10 is not a top-k metric on EB-NeRD.** Median rack 9 < cutoff 10, so it collapses
+  into nDCG@all — a full-list ordering measure, close to what AUC already reports. On MIND
+  (median 22, p95 119) the cutoff genuinely bites. Same metric, doing real work on one
+  dataset and near-duplicate work on the other. Reported with the reason named, not
+  smoothed over.
+
+---
+
+### D23 — Break ranking ties pessimistically, and report the optimistic bound alongside
+**Date:** 2026-08-25 · **Decided by:** Chaitanya
+
+AUC defines its own tie rule (a tied pair scores 0.5). **MRR and nDCG do not** — they need
+a total order, so a tie must be broken by something outside the score. BM25 scores an
+article exactly 0 when it shares no term with the query, so ties are real, not theoretical.
+
+**Chosen:** clicked candidates are ordered **last** within their tie group, making every
+MRR and nDCG figure a **lower bound** no tie-luck can inflate. The optimistic bound
+(clicked first) is computed alongside, so the gap between the two *measures* how much tie
+handling matters instead of asserting it doesn't.
+
+**Alternatives rejected:**
+- *Stable sort (leave ties alone).* Simplest and fully deterministic. Rejected because
+  "leave them alone" is not neutral — `np.argsort` is stable, so it silently means "rank
+  ties by position in the raw candidate list". That is safe only if raw order carries no
+  click signal, which we verified rather than assumed (below) — but verified about *these
+  two val splits*, and nothing in the code would notice a test bundle behaving differently.
+- *Seeded random tiebreak.* Robust to any hidden ordering signal and reproducible, but
+  the reported number shifts with the seed, and a single number still cannot show its own
+  sensitivity.
+
+**Why:** only the two-bound version can produce the sentence the design note actually
+needs — *"tie handling moves the metric by less than X, measured, so no conclusion rests
+on it."* Cost is roughly five lines.
+
+**Measured before deciding** (BM25 scores over real val candidate lists, 3,000 sampled
+impressions per dataset):
+
+| | MIND | EB-NeRD |
+|---|---|---|
+| Candidates scoring exactly 0 | 2.4% | 4.0% |
+| Largest tie group, as a fraction of the rack | 10.0% | 12.7% |
+| Impressions where **every** candidate scores 0 | 0.10% | 0.00% |
+| Impressions where a clicked article is inside the zero-tie | 2.70% | 4.00% |
+
+Smaller than expected — a 10-title query carries enough vocabulary that most same-cycle
+candidates share something. But 0.10% of MIND impressions have their MRR and nDCG decided
+*entirely* by the tiebreak.
+
+**The check that made this worth stopping for.** Because stable sorting silently ranks
+ties by raw candidate order, we tested whether that order leaks click information:
+
+```
+                mean normalised position of a clicked item    clicked-item-first
+  MIND     :    0.5017        (0.5 = uniform)                  9.86%  vs 10.18% expected
+  EB-NeRD  :    0.4961                                        11.74%  vs 11.70% expected
+```
+
+Both platforms pre-shuffle `article_ids_inview` / `impressions`; raw order carries no
+click signal. Good news, but *verified* good news about the val splits specifically — which
+is precisely why the tie policy is explicit in code rather than inherited from a sort's
+stability.
+
+**Ties are exact float equality.** That catches the structurally important group (score
+exactly 0.0 from an empty sparse dot product) and not near-ties differing by float
+rounding. Known and bounded, with a test pinning the behaviour rather than leaving it to
+be discovered.

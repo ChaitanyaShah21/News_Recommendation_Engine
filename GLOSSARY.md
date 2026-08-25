@@ -569,3 +569,87 @@ MIND averages 1.55 subword tokens per whitespace word and EB-NeRD 1.68 (Danish f
 more), so **7.7% of MIND articles exceed the limit — but only 1.37% of MIND's total tokens
 are lost, and 0.00% of EB-NeRD's** (max 121). Accepted rather than worked around; recorded
 because it is a real dataset asymmetry in Q3.5's comparison.
+
+---
+
+## Phase 4 — evaluation metrics
+
+### Re-ranking (versus retrieval)
+**Plain:** Head office sends the newsagent 22 newspapers. He didn't pick them; his only
+job is deciding what goes at eye level. That is re-ranking. Choosing which 22 to order
+out of every paper printed nationwide is retrieval.
+
+**Technical:** Retrieval (Q2/Q3) selects top-K from the whole corpus and is graded by
+recall@K. Re-ranking (Q4, Q5) orders the platform's own supplied candidate list —
+MIND's `impressions` field, EB-NeRD's `article_ids_inview` — and is graded by AUC, MRR
+and nDCG. The split is **forced, not stylistic**: every Q4 metric needs a per-item
+clicked/not-clicked label, and only the shown list carries one. An unshown corpus article
+is *unlabelled*, not negative. Both Codabench leaderboards score the re-ranking task.
+
+---
+
+### AUC (Area Under the Curve — the Receiver Operating Characteristic curve)
+**Plain:** Take one paper the customer bought and one they ignored, at random. Did we put
+the bought one higher? AUC is the fraction of such pairs we got right. 0.5 is a coin flip.
+
+**Technical:** over one impression, with `P` clicked candidates and `N` unclicked,
+
+```
+  AUC = (1/(P*N)) * SUM_p SUM_n [ 1 if s_p > s_n ; 0.5 if s_p == s_n ; 0 otherwise ]
+```
+
+Equivalently, and what we compute (O(n log n) rather than O(P·N)):
+`(sum of the clicked items' average ranks − P(P+1)/2) / (P·N)`. Average ranks are what
+produce the 0.5 tie credit, so **AUC needs no tie policy of its own**. Undefined when
+`P = 0` or `N = 0`. Sensitive to candidate-list length in a way MRR is not: a clicked item
+at rank 3 scores 0.895 in a rack of 20 and 0.333 in a rack of 4 — which is why MIND's and
+EB-NeRD's AUCs are not comparable to each other.
+
+---
+
+### MRR (Mean Reciprocal Rank)
+**Plain:** Only where the *first* correct paper landed matters. First shelf 1.0, second
+0.5, fifth 0.2. Average over customers.
+
+**Technical:** mean over impressions of `1 / (rank of the first clicked candidate)`,
+ranks 1-indexed. Ignores every correct item after the first, and is blind to rack size.
+Undefined when the impression has no clicks.
+
+---
+
+### DCG, IDCG, nDCG@k (Discounted Cumulative Gain, Ideal, normalised)
+**Plain:** Only the top k shelves are graded, and lower shelves earn less credit. Then
+divide by the best score that customer's impression could possibly have earned, so
+someone who bought 3 papers isn't automatically scored higher than someone who bought 1.
+
+**Technical:**
+```
+  DCG@k  = SUM over i = 1..k of  rel(i) / log2(i + 1)      rel(i) = 1 if clicked
+  IDCG@k = the same with min(P, k) clicked items packed into the top slots
+  nDCG@k = DCG@k / IDCG@k
+```
+Discount by position: rank 1 → 1.000, rank 2 → 0.631, rank 5 → 0.387, rank 10 → 0.289.
+The logarithm decays more gently than MRR's `1/i` (slot 2 is worth 63% of slot 1, not
+50%), modelling a user who scans several items. **`min(P, k)` is load-bearing:** MIND has
+impressions with 21 clicks, and normalising by all 21 would cap a flawless ranking at
+~0.51 inside nDCG@10 for a reason about the cutoff, not the ranking.
+
+**When k exceeds the candidate list, nDCG@k silently becomes nDCG@all** — a full-list
+ordering metric, close to what AUC already measures. EB-NeRD's median rack is 9
+candidates, so its nDCG@10 is routinely this case and nDCG@5 is the only cutoff there
+still asking "did the click reach the visible slots?".
+
+---
+
+### Tie policy (pessimistic / optimistic bounds)
+**Plain:** Two papers we rated identically — which do we call "higher"? If we always
+guess in our own favour, our grade flatters us.
+
+**Technical:** AUC defines its own tie rule; MRR and nDCG need a total order, so ties must
+be broken outside the score. **`np.argsort` is stable**, so "do nothing" silently means
+"rank ties by position in the raw candidate list" — leakage if that order carried click
+signal. D23 breaks ties explicitly: *pessimistic* puts clicked items last within a tie
+group (every metric becomes a lower bound), *optimistic* first, and both are reported so
+the gap between them measures how much tie handling matters. Ties are detected by exact
+float equality, which catches the structurally important group — candidates sharing no
+term with the query, scoring exactly 0.0 — and not near-ties differing by float noise.
