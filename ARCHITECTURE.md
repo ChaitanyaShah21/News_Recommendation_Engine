@@ -925,3 +925,140 @@ stability.
 exactly 0.0 from an empty sparse dot product) and not near-ties differing by float
 rounding. Known and bounded, with a test pinning the behaviour rather than leaving it to
 be discovered.
+
+---
+
+### D24 — Evaluate two baselines alongside BM25 and semantic
+**Date:** 2026-08-25 · **Decided by:** Chaitanya
+
+Q4 requires no baseline. AUC needs none — 0.5 is random by construction. But **MRR and
+nDCG have no natural zero point**, so "nDCG@5 = 0.28" is uninterpretable on its own. Phase
+2 already paid for that lesson: EB-NeRD's recall@200 looked like a 3× win until the
+random-baseline column showed the pool had merely shrunk.
+
+**Chosen:** two extra scorers through the same harness — **random** (seeded per impression)
+and **popularity** (rank by train-window click count, the standard non-personalised
+baseline).
+
+**Alternatives rejected:**
+- *Random only.* Cheapest, and gives the floor. Leaves "is this better than just showing
+  what's popular?" unanswered, and Q4.3's novelty/coverage needs a popularity signal anyway.
+- *No baseline.* Exactly Q4.5's literal ask. Every MRR and nDCG in the design note would
+  then sit without a reference point.
+
+**Why:** popularity is needed later regardless (Q4.3's beyond-accuracy metrics, and as a
+natural arm of Q9's ablation), so the marginal cost was ~25 lines. It also carries a real
+risk we accepted deliberately: the content scorers might barely beat popularity, which
+would be the honest headline rather than a result to bury.
+
+**Leakage constraint built into the code, not just intended:** popularity is counted over
+the **train** split only. `train_click_counts` raises on any other split rather than
+trusting the caller, because counting val clicks would mean the baseline had seen the
+answers it is scored against.
+
+---
+
+### Q4.2 — measured results, and the finding that came out of it
+
+`scripts/run_rerank_eval.py`, val split, macro mean over impressions with a query (D17),
+pessimistic tie policy (D23):
+
+| Dataset | Method | AUC | MRR | nDCG@5 | nDCG@10 |
+|---|---|---|---|---|---|
+| MIND | random | 0.5007 | 0.2489 | 0.2264 | 0.2906 |
+| MIND | popularity | 0.5423 | 0.2541 | 0.2278 | 0.2892 |
+| MIND | BM25 | 0.5492 | 0.3006 | 0.2760 | 0.3377 |
+| MIND | **semantic** | **0.6338** | **0.3475** | **0.3316** | **0.3912** |
+| EB-NeRD | popularity | **0.4647** | 0.1436 | 0.0939 | 0.2382 |
+| EB-NeRD | BM25 | 0.4966 | 0.3128 | 0.3418 | 0.4297 |
+| EB-NeRD | random | 0.4987 | 0.3126 | 0.3443 | 0.4295 |
+| EB-NeRD | **semantic** | **0.5331** | **0.3373** | **0.3730** | **0.4532** |
+
+The random arm lands at AUC 0.5007 (MIND) and 0.4987 (EB-NeRD), which is the harness
+checking itself: anything else would have meant a bug in the metrics, the scoring or the
+labels before any finding could be read off the other rows.
+
+**Finding 6 — BM25 cannot re-rank EB-NeRD at all.** AUC 0.4966 against random's 0.4987;
+MRR 0.3128 against 0.3126. Verified as a property of the data, not a bug: the scorer was
+checked against an independent per-impression computation (max deviation 1.9e-06, float32
+noise), and the mean BM25 score of clicked candidates is 6.835 against 6.773 for unclicked
+— no separation.
+
+This is *not* a restatement of Phase 2's weak EB-NeRD retrieval. Retrieval and re-ranking
+are different jobs on different pools: BM25 held a 1.21× lift at K=50 when picking from
+11,777 articles, and is at exactly chance when ordering the ~9 the platform already chose.
+The reason is that **the platform's own recommender has already spent the easy signal.**
+Everything in `article_ids_inview` is plausible for that user; lexical overlap with their
+reading history no longer separates the plausible from the clicked. Semantic retains a
+little discrimination (0.5331) but not much.
+
+**Finding 7 — on EB-NeRD, yesterday's popularity predicts today's clicks in the *wrong*
+direction.** Popularity scores AUC **0.4647**, meaningfully *below* chance. The mechanism:
+
+| | val candidates never clicked in train | mean train popularity, clicked vs unclicked |
+|---|---|---|
+| MIND | 46.6% | 34.45 vs 31.97 → mildly predictive (AUC 0.5423) |
+| EB-NeRD | **86.9%** | **1.96 vs 3.22 → anti-predictive (AUC 0.4647)** |
+
+EB-NeRD's article inventory turns over almost completely between the train and val
+windows, and an article still carrying train-window clicks by the val window is
+disproportionately *stale*. So training-window popularity is a freshness signal pointing
+backwards.
+
+This is the **third independent route** to the same conclusion. Phase 2 found content
+retrieval blind to time via BM25's freshness profile; Phase 3 reproduced it with a
+completely different matching function; Phase 4 now finds that the one baseline which
+*does* encode time encodes it with the sign reversed. On MIND, whose clicks are only
+mildly fresh-skewed (13.7% against a 10.9% corpus baseline), the same baseline is weakly
+useful. Same algorithm, opposite sign, explained by a measured property of the data.
+
+**Finding 8 — the tie policy earned its keep exactly once, and the number says where.**
+The gap between the pessimistic and optimistic bounds on nDCG@10:
+
+| | BM25 | semantic | popularity | random |
+|---|---|---|---|---|
+| MIND | +0.0013 | +0.0000 | +0.0768 | +0.0000 |
+| EB-NeRD | +0.0007 | +0.0000 | **+0.5012** | +0.0000 |
+
+For BM25 and semantic the two bounds agree to under 0.002, so **no conclusion in this
+table rests on tie handling** — the sentence D23 existed to make possible. For popularity
+it is decisive: with 86.9% of EB-NeRD's candidates never clicked in train, that scorer is
+mostly a constant, and its reported nDCG@10 swings from 0.238 to 0.739 purely on how ties
+are resolved. Reported as a single optimistic number it would have looked like the best
+method on the table.
+
+---
+
+### Deliberately not carried into re-ranking: D15 and D19
+
+**D15 (history exclusion)** cannot apply — the platform chose the candidate list, and every
+item on it needs a score. Nor does the re-ranker adjust for already-read candidates, even
+though they are a real signal:
+
+| | MIND | EB-NeRD |
+|---|---|---|
+| Candidates already in the user's history | 0.055% | 0.959% |
+| Click rate on those | **14.3%** | **4.1%** |
+| Click rate on all candidates | 4.1% | 8.4% |
+| Ratio | **3.5× more likely** | **0.49× — half as likely** |
+
+The two datasets point in opposite directions, both well outside sampling noise. Checked
+for leakage before believing the MIND figure, since "already read *and* clicked" is the
+shape a double-counted click would take: no history snapshot contains clicks from its own
+window (MIND 0.578% train / 0.195% val; EB-NeRD 0.358% / 0.470%), so the 3.5× is behaviour.
+
+Folding it into the score would make the number reported as "BM25 nDCG@5" two systems
+blended — the conflation D17 rejected a popularity fallback for. **"Has the user already
+read this candidate" is a serving-time feature**, so it belongs in Q9's ablation, where it
+is graded rather than smuggled in.
+
+**D19 (availability)** does not apply either: the candidates were in circulation by
+definition — the platform showed them. Restricting further would re-decide a decision the
+log already records.
+
+**Landmine found while checking the above, for `tests/test_no_leakage.py`:** EB-NeRD's
+**validation history file contains 99.52% of the train-window clicks** (22,143 of 22,249).
+Harmless as we use it — val history predicts val impressions, and train precedes val — but
+pointing val-split history at train impressions would hand over the answers almost
+perfectly. A concrete assertion the test should carry, and one we would not have thought
+to write without the measurement.
