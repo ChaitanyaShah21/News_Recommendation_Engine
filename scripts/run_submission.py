@@ -59,7 +59,14 @@ PROCESSED = REPO_ROOT / "data" / "processed" / SUBMISSION_SUBDIR
 OUT_DIR = REPO_ROOT / "reports" / "submissions"
 CONFIG_FOR = {"mind": "mind.yaml", "ebnerd": "ebnerd.yaml"}
 
-N_RECENT = 10  # D12, unchanged from Q2/Q3/Q4
+# D12 chose N = 10 for RETRIEVAL, where a long query drags a whole-corpus search
+# toward stale interests (topic drift). Re-ranking is a different job: the platform
+# has already supplied a topically plausible shortlist, so there is no drift to
+# defend against and more history is simply more signal. Measured on MIND val
+# (2026-08-26): mean-pooled AUC 0.6174 @ N=5, 0.6338 @ 10, 0.6456 @ 25, 0.6480 @ 50,
+# 0.6489 @ 100 - +0.0151 from N=10 to N=100, and saturating.
+# Overridable with --n-recent; the default is the tuned value.
+N_RECENT = 100
 
 
 def load_test_root(dataset: str) -> Path:
@@ -89,6 +96,7 @@ def build_user_vector_memmap(
     article_ids: list[str],
     embeddings: np.ndarray,
     path: Path,
+    n_recent: int = N_RECENT,
     batch_users: int = 100_000,
 ) -> UserVectors:
     """Mean-pool every test user's last-N history into an on-disk float32 memmap.
@@ -102,7 +110,7 @@ def build_user_vector_memmap(
     The vectors themselves are identical to the unbatched result: pooling is
     per-user and touches no other row.
     """
-    history = load_submission_history(dataset, test_root, n_recent=N_RECENT)
+    history = load_submission_history(dataset, test_root, n_recent=n_recent)
     n_users = history.height
 
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -114,7 +122,7 @@ def build_user_vector_memmap(
 
     for start in range(0, n_users, batch_users):
         block = history.slice(start, batch_users)
-        vecs = build_user_vectors(block, article_ids, embeddings, n_recent=N_RECENT)
+        vecs = build_user_vectors(block, article_ids, embeddings, n_recent=n_recent)
         matrix[start : start + block.height] = vecs.matrix
         has_query[start : start + block.height] = vecs.has_query
         user_ids.extend(vecs.user_ids)
@@ -136,6 +144,8 @@ def main() -> int:
                              "of this, not of impression count")
     parser.add_argument("--limit", type=int, default=None,
                         help="only the first N impressions (smoke runs)")
+    parser.add_argument("--n-recent", type=int, default=N_RECENT,
+                        help="history window for the user vector (tuned: 100)")
     args = parser.parse_args()
 
     ds = args.dataset
@@ -183,7 +193,8 @@ def main() -> int:
     t0 = time.perf_counter()
     users = build_user_vector_memmap(
         ds, test_root, all_ids, all_emb,
-        path=PROCESSED / f"user_vectors_{ds}.npy",
+        path=PROCESSED / f"user_vectors_{ds}_n{args.n_recent}.npy",
+        n_recent=args.n_recent,
     )
     n_cold = int((~users.has_query).sum())
     print(f"user vectors : {len(users.user_ids):,}  "
@@ -197,7 +208,7 @@ def main() -> int:
 
     # --- stream ------------------------------------------------------------
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    txt_path = OUT_DIR / f"{ds}_{args.method}.txt"
+    txt_path = OUT_DIR / f"{ds}_{args.method}_n{args.n_recent}.txt"
 
     written = 0
     t0 = time.perf_counter()
@@ -225,7 +236,7 @@ def main() -> int:
 
     # --- package -----------------------------------------------------------
     zip_path = zip_submission(
-        txt_path, OUT_DIR / f"{ds}_{args.method}.zip", PREDICTION_FILENAME[ds]
+        txt_path, OUT_DIR / f"{ds}_{args.method}_n{args.n_recent}.zip", PREDICTION_FILENAME[ds]
     )
     print(f"\nwrote {written:,} lines -> {txt_path.relative_to(REPO_ROOT)} "
           f"({txt_path.stat().st_size / 1e6:.0f} MB)")

@@ -1683,3 +1683,79 @@ labels, which this split does not have and which we must not want.
    10,451 of 125,541 for EB-NeRD, 30,043 of 120,961 for MIND. The score block is
    (batch_users × n_candidates), so this is a ~12× cut on the dominant term, and it
    changes no result: an article that is never a candidate can never be scored.
+
+---
+
+### D31 — Re-tune N for re-ranking: 10 → 100, and report the fusion as an ablation rather than shipping it
+**Date:** 2026-08-26 · **Decision:** Confirmed on validation split and verified on leaderboard.
+
+Prompted by the first MIND leaderboard result: **AUC 0.6037, rank 62/90**, against a val
+AUC of 0.6338. Val proved a trustworthy proxy — close in value and, more importantly,
+monotone — so improvements could be measured offline without spending submissions.
+
+**Chosen:** N = 100 for the re-ranking user vector, mean-pooled, on both datasets.
+Fusion is measured and reported, not shipped.
+
+**The finding, which is the point rather than the number.** D12 chose N = 10 for
+*retrieval*, and gave an explicit reason: a query built from a long history drags a
+whole-corpus search toward stale interests, and BM25 contains no time term with which to
+correct it. That reasoning **does not transfer to re-ranking**, and we had inherited the
+value without re-asking. Re-ranking never searches the corpus — the platform has already
+supplied a topically plausible shortlist — so there is no drift to defend against and
+more history is simply more evidence.
+
+Measured on val (macro AUC, has-query slice, fixed denominator across all N so the sweep
+compares scorers and not populations):
+
+| N | BM25 | semantic mean-pool | semantic max-sim |
+|---|---|---|---|
+| 5 | 0.5375 | 0.6174 | 0.6093 |
+| **10** *(what was submitted)* | 0.5492 | **0.6338** | 0.6219 |
+| 25 | 0.5577 | 0.6456 | 0.6311 |
+| 50 | 0.5596 | 0.6480 | 0.6336 |
+| **100** *(chosen)* | 0.5601 | **0.6489** | 0.6346 |
+
+**+0.0151 AUC from one parameter**, saturating by 100 (50→100 adds 0.0009). EB-NeRD moves
+the same way, 0.5331 → 0.5413. This is `system design contract` §6's retrieval-versus-re-ranking trap
+appearing as a *hyperparameter* rather than as a candidate set: **the same knob wants
+opposite values for the two tasks**, and a value justified by a sound argument in one
+phase was silently wrong in the next.
+
+**Two results we did not expect, both kept because they are more informative than the win.**
+
+1. **Max-similarity lost on MIND and won on EB-NeRD.** Scoring a candidate by its
+   similarity to the user's single *nearest* history article, rather than to their
+   centroid, was motivated by Finding 4's observed mean-pooling failure (the Popeyes
+   cluster). It loses at every N on MIND (0.6346 vs 0.6489) and **wins** on EB-NeRD
+   (0.5450 vs 0.5413). Consistent with what D22 already measured: EB-NeRD's histories are
+   far longer (median 83 vs 15) and its nearest-neighbour cosines much lower (0.48–0.52 vs
+   0.62–0.69, short cryptic Danish tabloid headlines), so a centroid over 100 loosely
+   related articles carries little, while the nearest one still carries a real interest.
+   **A hypothesis drawn from a genuine observed failure still failed to generalise**,
+   because that failure was specific to whole-corpus nearest-neighbour search where dense
+   clusters win, which cannot arise on a 25-candidate list.
+2. **A scorer that is worse alone can still help in combination.** Max-sim is behind
+   mean-pooling on MIND by 0.0143 yet adds +0.0056 when fused with it — the errors are
+   complementary, not merely smaller.
+
+**Best fusion, measured:** MIND 0.6545 (z-score, mean 1.0 / max 0.5 / bm25 0.25),
+EB-NeRD 0.5472 (z-score, mean 1.0 / max 1.0). **Not shipped**, on an explicit
+cost argument rather than a doubt about the result: it is +0.0056 against N's +0.0151,
+and shipping it needs a BM25 index and queries over 702,005 test users plus max-similarity
+across 2.37M impressions — one to two hours against a deadline with the design note
+unwritten, for a metric the spec states is never graded.
+
+**A measurement that changed the search, not just the result.** Popularity was dropped
+from the fusion after checking whether it *transfers*: only **1,701 of 30,043 (5.7%)** MIND
+leaderboard-test candidates have a train-window click count, because our train split is
+MIND-small (9–14 Nov 2019) and the test bundle begins 19 Nov. A weight tuned on a signal
+absent for 94% of test candidates would have flattered val and done nothing on the
+leaderboard. The same catalogue turnover that produced Finding 8 (popularity predicts
+EB-NeRD clicks in the *wrong* direction) here invalidates a feature before it is used.
+
+**Process costs, recorded because they were self-inflicted:** the first fusion search ran
+over an hour without finishing — it evaluated seven metrics per weight combination when
+the search reads one, searched a 4-way grid when AUC's scale-invariance makes one weight
+redundant, and printed nothing until completion. Rewritten as `scripts/tune_fusion.py`,
+the same search takes ~2 minutes. Three separate runtime estimates given during this work
+were wrong; the corrective is that an estimate for a loop nobody has timed is a guess.

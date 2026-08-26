@@ -70,6 +70,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dataset", required=True, choices=["mind", "ebnerd"])
     parser.add_argument("--method", default="semantic")
+    parser.add_argument("--suffix", default="",
+                        help="e.g. _n100, matching run_submission.py's output name")
     parser.add_argument("--chunk-size", type=int, default=250_000)
     parser.add_argument("--reference", type=Path, default=None,
                         help="official example .zip to cross-check ids against")
@@ -86,8 +88,8 @@ def main() -> int:
         return 1
 
     ds = args.dataset
-    txt_path = OUT_DIR / f"{ds}_{args.method}.txt"
-    zip_path = OUT_DIR / f"{ds}_{args.method}.zip"
+    txt_path = OUT_DIR / f"{ds}_{args.method}{args.suffix}.txt"
+    zip_path = OUT_DIR / f"{ds}_{args.method}{args.suffix}.zip"
     if not txt_path.exists():
         print(f"error: {txt_path} not found - run scripts/run_submission.py first",
               file=sys.stderr)
