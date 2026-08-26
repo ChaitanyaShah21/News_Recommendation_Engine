@@ -34,3 +34,6 @@ venv/
 
 # ---- Keep these despite the rules above ----
 !reports/figures/*.png
+
+# ---- Codabench worker: live shared-queue credentials ----
+codabench/.env
