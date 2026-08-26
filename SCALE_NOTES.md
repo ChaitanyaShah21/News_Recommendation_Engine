@@ -191,3 +191,26 @@ of a 125,541-article corpus (8.3%). MIND's 2.37 M impressions draw on 30,043 of 
 we must embed the corpus once, but the score matrix that matters is tiny. This is the
 same structural fact Phase 2 found from the other direction — EB-NeRD's in-circulation
 set is small — arriving here as a compute budget rather than a recall ceiling.
+
+### Phase 5 outturn: what the projections got wrong
+
+Both large-scale estimates in this file were wrong in the same direction, and the reasons
+differ:
+
+| Step | Projected | Actual | Why |
+|---|---|---|---|
+| Embed both test corpora | ~43 min | **43.0 min** (24.4 + 18.6) | correct — but a mid-run flag claimed ~80 min, because throughput was sampled under CPU contention (~50 articles/s loaded vs 113–115 unloaded) |
+| MIND submission | — | **6.4 min** @ 7,140 impressions/s | — |
+| EB-NeRD submission | ~35 min | **6.7 min** @ 42,683 impressions/s | extrapolated from MIND's rate; EB-NeRD's racks are shorter (median 9 vs 25) and its scoring matrix is 10,451 columns vs 30,043 |
+
+**The transferable lesson is that throughput does not transfer between datasets even for
+identical code.** EB-NeRD has 5.7× more impressions than MIND yet finished in the same
+wall-clock time, because per-impression cost is driven by rack size and candidate-matrix
+width, not by row count. A capacity estimate that scales linearly in rows is wrong by 6×
+here — in the safe direction this time, which is exactly why it would not have been
+noticed had it gone the other way.
+
+**And a measurement-hygiene note worth more than either number:** a benchmark taken while
+other work runs on the same cores is not a benchmark of the code. The ~1.9× slowdown
+observed under contention was enough to turn a correct 43-minute estimate into an
+80-minute alarm.

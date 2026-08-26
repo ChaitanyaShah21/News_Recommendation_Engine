@@ -75,6 +75,16 @@ def main() -> int:
                         help="official example .zip to cross-check ids against")
     args = parser.parse_args()
 
+    if args.reference is not None and not args.reference.exists():
+        # A verification step that silently skips is worse than no step at all:
+        # it reports "OK" whether it ran or not. Found the hard way - the
+        # reference oracle was deleted between sessions and this check quietly
+        # did nothing while the run still printed a clean bill of health.
+        print(f"error: --reference {args.reference} does not exist. Refusing to "
+              f"report a result that would omit a check you asked for.",
+              file=sys.stderr)
+        return 1
+
     ds = args.dataset
     txt_path = OUT_DIR / f"{ds}_{args.method}.txt"
     zip_path = OUT_DIR / f"{ds}_{args.method}.zip"
@@ -168,7 +178,7 @@ def main() -> int:
     print("rank-1 position    : " + ", ".join(
         f"pos{p}={100 * c / total:.1f}%" for p, c in top))
 
-    if args.reference and args.reference.exists():
+    if args.reference:
         with zipfile.ZipFile(args.reference) as zf:
             name = zf.namelist()[0]
             with zf.open(name) as ref:
