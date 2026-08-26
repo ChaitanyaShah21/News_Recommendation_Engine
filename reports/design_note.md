@@ -213,6 +213,13 @@ offline, so every tuning decision above was made without spending a submission o
 the leaderboard as a signal. An evaluation harness whose deltas transfer is worth more
 than one whose absolute numbers happen to match.
 
-EB-NeRD: 13,536,710 predictions submitted; the RecSys challenge's scoring container is a
-known bottleneck and results are pending.
-*[Screenshots: `reports/figures/`]*
+![MIND leaderboard, 2026-08-26: csharp rank 54, AUC 0.6191](figures/mind_csharp.png)
+
+*MIND leaderboard, 26 Aug 2026 — `csharp`, rank 54/90: AUC 0.6191, MRR 0.2997,
+nDCG@5 0.3214, nDCG@10 0.3774.*
+
+EB-NeRD: 13,536,710 predictions submitted and pending. The RecSys 2024 challenge's
+scoring container is a known throughput bottleneck (confirmed by the course
+instructor), which is itself the reason all iteration in this project was done against
+the offline harness rather than against a leaderboard — and the calibration result above
+is what made that viable.
