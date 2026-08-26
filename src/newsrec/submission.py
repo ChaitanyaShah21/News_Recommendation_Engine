@@ -179,9 +179,18 @@ def load_submission_behaviors(dataset: str, test_root: Path) -> pl.LazyFrame:
         pl.col("article_ids_inview")
         .list.eval(pl.lit("ebnerd:") + pl.element().cast(pl.Utf8))
         .alias("candidate_article_ids"),
-        # Landmine 3. Carried through, not dropped: the RecSys 2024 rules treat
-        # these 200,000 rows as a separately-scored subset, so the submission
-        # writer needs to be able to see them.
+        # Landmine 3. Carried through rather than dropped, so the submission
+        # writer can act on it if needed.
+        #
+        # What is VERIFIED: the column exists and is true for exactly 200,000 of
+        # 13,536,710 rows (counted 2026-08-26), and the competition's official
+        # example submission contains all 13,536,710 lines - so every row must be
+        # predicted regardless of this flag, which is what we do.
+        #
+        # What is NOT verified: an earlier note here asserted that "the RecSys
+        # 2024 rules treat these as a separately-scored subset". The published
+        # Submission Guidelines say nothing about the flag, so that claim was
+        # inferred, not read. Left as an observation rather than a rule.
         pl.col("is_beyond_accuracy"),
     )
 

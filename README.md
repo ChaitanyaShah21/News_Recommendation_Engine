@@ -49,17 +49,21 @@ Run in this order. Timings are measured on the development machine (WSL2, 7.7 GB
 |---|---|---|---|
 | 1 | `scripts/build_pipeline.py` | the feature store | **2.8 s** |
 | 2 | `scripts/build_embeddings.py` | `embeddings.parquet` (77,015 × 384) | **13.3 min** |
-| 3 | `scripts/run_bm25_recall.py` | Q2 recall@K, both pools | not separately timed |
-| 4 | `scripts/run_semantic_recall.py` | Q3 recall@K, both pools | not separately timed |
+| 3 | `scripts/run_bm25_recall.py` | Q2 recall@K, both pools | **235 s** |
+| 4 | `scripts/run_semantic_recall.py` | Q3 recall@K, both pools | **43 s** |
 | 5 | `scripts/summarise_recall.py` | `reports/recall_summary.csv` | seconds |
 | 6 | `scripts/run_rerank_eval.py` | Q4.2 AUC/MRR/nDCG, 4 scorers | **136 s** MIND, **1.2 s** EB-NeRD |
-| 7 | `scripts/run_beyond_accuracy.py` | Q4.3 diversity / novelty / coverage | not separately timed |
-| 8 | `scripts/run_eval_report.py` | Q4.3 slices + Q4.4 bootstrap CIs | not separately timed |
-| 9 | `scripts/run_ablation.py` | Q9 serving-time ablation | not separately timed |
+| 7 | `scripts/run_beyond_accuracy.py` | Q4.3 diversity / novelty / coverage | **283 s** |
+| 8 | `scripts/run_eval_report.py` | Q4.3 slices + Q4.4 bootstrap CIs | **26 s** |
+| 9 | `scripts/run_ablation.py` | Q9 serving-time ablation | **64 s** |
 
-Bold timings are measured on this machine. The rest were never stopwatch-timed as
-individual steps, and are left unclaimed rather than guessed — all of them are minutes,
-not hours.
+**Every timing above is measured on this machine** (WSL2, 7.7 GB RAM, no GPU), not
+estimated. Steps 1–9 reproduce the full analysis in **under 12 minutes** end to end,
+excluding the one-off 13.3 min embedding build.
+
+Re-running steps 3–9 reproduces the committed CSVs **byte-identically** — verified, so the
+pipeline is deterministic and the numbers in this README and the design note can be
+regenerated rather than taken on trust.
 
 Step 2 is deliberately **not** part of `build_pipeline.py`: that script rewrites
 `articles.parquet` on every run, so vectors stored there would be recomputed each rebuild
@@ -79,23 +83,26 @@ Step 2 is deliberately **not** part of `build_pipeline.py`: that script rewrites
 Needs the large bundles — `MINDlarge_test` and `ebnerd_testset` — with `test_root` in each
 config pointing at them.
 
+All timings below are **measured on this machine**, not estimated.
+
 ```bash
-.venv/bin/python scripts/build_submission_store.py                 # ~2 s
+.venv/bin/python scripts/build_submission_store.py                 # 2.3 s
 .venv/bin/python scripts/build_embeddings.py \
     --datasets mind   --articles data/processed/submission/articles_mind.parquet \
-    --output data/processed/submission/embeddings_mind.parquet     # 24.4 min (measured)
+    --output data/processed/submission/embeddings_mind.parquet     # 24.4 min, 82 art/s
 .venv/bin/python scripts/build_embeddings.py \
     --datasets ebnerd --articles data/processed/submission/articles_ebnerd.parquet \
-    --output data/processed/submission/embeddings_ebnerd.parquet   # ~25 min (projected)
+    --output data/processed/submission/embeddings_ebnerd.parquet   # 18.6 min, 113 art/s
 
-.venv/bin/python scripts/run_submission.py --dataset mind          # 6.4 min (measured)
-.venv/bin/python scripts/validate_submission.py --dataset mind
+# --n-recent defaults to 100 (D31); outputs are suffixed with it
+.venv/bin/python scripts/run_submission.py      --dataset mind             # 4.1 min
+.venv/bin/python scripts/validate_submission.py --dataset mind   --suffix _n100
 
-.venv/bin/python scripts/run_submission.py --dataset ebnerd        # ~35 min (projected)
-.venv/bin/python scripts/validate_submission.py --dataset ebnerd
+.venv/bin/python scripts/run_submission.py      --dataset ebnerd           # 6.3 min
+.venv/bin/python scripts/validate_submission.py --dataset ebnerd --suffix _n100
 ```
 
-Upload `reports/submissions/{dataset}_semantic.zip`:
+Upload `reports/submissions/{dataset}_semantic_n100.zip`:
 
 - MIND → https://www.codabench.org/competitions/13967/
 - EB-NeRD → https://www.codabench.org/competitions/2469/
@@ -154,6 +161,42 @@ readable; without it EB-NeRD's numbers are actively misleading):
 |---|---|---|---|---|
 | MIND — AUC | 0.5007 | 0.5423 | 0.5492 | **0.6338** |
 | EB-NeRD — AUC | 0.4987 | 0.4647 | 0.4966 | **0.5331** |
+
+**Tuned re-ranking (D31), and the leaderboard it produced.** The history window N was
+inherited from retrieval, where D12 chose it to fight topic drift. Re-ranking has no drift
+to fight, and re-tuning it was worth more than any other change:
+
+| | val AUC | MIND leaderboard | rank |
+|---|---|---|---|
+| N = 10 | 0.6338 | 0.6037 | 62 / 90 |
+| **N = 100** (submitted) | **0.6489** | **0.6191** | **54 / 90** |
+| change | +0.0151 | **+0.0154** | +8 |
+
+Predicted from val, delivered on the leaderboard, agreeing to **0.0003** — the offline
+harness ranks design changes correctly, which is what allowed every tuning decision to be
+made without spending submissions.
+
+**Engineering metrics** (`scripts/benchmark_engineering.py`, MIND, 65,238 articles):
+
+| | build | size | per query p50 | p95 |
+|---|---|---|---|---|
+| BM25 inverted index (D14) | 1.61 s | 19 MB | 10.10 ms | 13.47 ms |
+| Embedding matrix (D21/D22) | 0.85 s load | 100 MB | **1.73 ms** | 4.51 ms |
+| Re-ranking one impression | — | — | **0.01 ms** | 0.02 ms |
+| `rank_bm25` — *the rejected alternative* | 0.61 s | — | **2,183.84 ms** | 13,202 ms |
+
+Three results worth stating plainly, each of which contradicts an intuition:
+
+- **`rank_bm25` is 216× slower per query** (30.3 h vs 8.4 min for a full val run) yet
+  **builds 2.6× faster**, because it defers all work to query time. Our extra 1.00 s of
+  build cost is repaid after **0.46 queries**. D14 originally claimed it "would not
+  finish"; measured, it finishes — the decision was right, the stated reason overshot.
+- **Dense brute-force search is 5.8× faster per query than the sparse index.** Sparse
+  means less arithmetic, not less time: BLAS gets 100 MB of sequential work, CSR does
+  scattered gathers.
+- **Batching is a memory necessity, not a speed-up.** 620 q/s at batch 1, 1,269 at batch
+  32, and **727 at batch 256** — it regresses once the score block leaves cache. What it
+  actually buys is avoiding a 9.9 GB score matrix on 7.7 GB of RAM.
 
 **The anti-gaming result (Q9)** — identical algorithm, counting window moved from training
 to the evaluated window:

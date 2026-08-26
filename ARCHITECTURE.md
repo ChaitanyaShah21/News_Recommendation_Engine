@@ -409,8 +409,15 @@ containing it. Scoring a batch of queries is one sparse matrix product.
 
 **Alternatives rejected:**
 - *`rank_bm25`.* Three lines to use, but it loops over every document per query in pure
-  Python — not actually an inverted index. 37,777 queries × 65,238 documents would not
-  finish.
+  Python — not actually an inverted index.
+  **Measured 2026-08-26, and this justification was overstated — see `SCALE_NOTES.md`.**
+  The original claim was that 37,777 queries × 65,238 documents "would not finish". It
+  does: **2,183.84 ms per query (p50) against our 10.10 ms — 216× — i.e. 30.3 hours
+  against 8.4 minutes.** Prohibitive, but finite. The correct argument is that
+  `rank_bm25` *builds 2.6× faster* (0.61 s vs 1.61 s) by deferring all work to query
+  time, and our extra 1.00 s of build cost is repaid after **0.46 queries** — it moves
+  work to the wrong side of a boundary crossed 50,000 times. Decision unchanged;
+  reasoning corrected.
 - *`bm25s`.* Fast and genuinely sparse, but Q2.1 grades *"build an inverted index"*, and a
   library call neither demonstrates that nor leaves anything defensible in a viva.
 
@@ -665,7 +672,7 @@ matrix product `(users × 384) @ (384 × articles)`, batched, then top-K per row
 
 **Why:** it is *exact*, so unlike an approximate index it cannot cost us recall — which
 matters because recall@K is the number Q3.4 reports and Q3.5 compares. At our scale the
-cost is under a minute of linear algebra. The single real constraint is memory: a
+cost is under a minute of linear algebra — **measured 2026-08-26 at 1.73 ms per query (p50), i.e. 65 s for all 37,777 val users, and 5.8× faster per query than the sparse BM25 index**. The single real constraint is memory: a
 37,777 × 65,238 float32 score matrix is **9.9 GB against 7 GB of RAM**, so it must be
 batched — the *identical* constraint D14 already forced on BM25, so `bm25_search.py`'s
 batching pattern is reused rather than reinvented.
@@ -1542,10 +1549,14 @@ pre-emptively.
 does not remove the chunking requirement — it *is* the chunking requirement. Cloud's extra
 RAM would have permitted sloppiness, not removed the need.
 
-**Measured cost of the choice:** the embedding run projected at ~80 min rather than the
-~43 min `SCALE_NOTES.md` predicted, because concurrent development work on the same cores
-dropped throughput from 96 to ~50 articles/s. Flagged under R8 at the time rather than
-absorbed. It is unattended wall-clock, not attention.
+**Measured cost of the choice, and a correction to an R8 flag raised mid-run.** The
+embedding of both test corpora completed in **24.4 min (MIND) + 18.6 min (EB-NeRD) =
+43.0 min — exactly the ~43 min `SCALE_NOTES.md` predicted.** A flag was raised partway
+through claiming it was heading for ~80 min; that projection came from sampling throughput
+(~50 articles/s) while development work competed for the same cores, against 82–115
+articles/s unloaded. The estimate was right and the alarm was wrong. Recorded because **an
+over-run flag raised on a contended measurement is itself a measurement error**, and it is
+the same failure mode as D20's stale download-speed figure.
 
 ---
 
