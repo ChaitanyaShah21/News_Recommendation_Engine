@@ -1770,3 +1770,45 @@ the search reads one, searched a 4-way grid when AUC's scale-invariance makes on
 redundant, and printed nothing until completion. Rewritten as `scripts/tune_fusion.py`,
 the same search takes ~2 minutes. Three separate runtime estimates given during this work
 were wrong; the corrective is that an estimate for a loop nobody has timed is a guess.
+### D32 — Wait for the shared Codabench queue; do not self-host a worker unless it stalls
+**Date:** 2026-08-26 · **Decided by:** Chaitanya
+
+The EB-NeRD submission (13,536,710 predictions, uploaded and validated) sits unscored
+because the RecSys 2024 challenge concluded and the organizers' compute workers were
+retired with it. A student surfaced the organizers' own remedy: they publish a Docker
+setup and a live `BROKER_URL` for competition 2469's queue, so any participant can attach
+a compute worker and drain it.
+
+**Chosen:** wait several days for the shared queue, and set up an x86-64 cloud virtual
+machine only if nothing has been scored by then. The deadline moved to 30 August, which is
+what makes waiting affordable.
+
+**Why waiting is not merely the lazy option.** The queue is *shared*: a worker attached by
+any participant processes whatever job is next, for everyone. At least one other student
+is running one. So the probability our submission is scored rises without us spending
+anything, and a worker we ran would spend its first hours on someone else's submission
+regardless.
+
+**Rejected: self-hosting locally.** Two independent blockers, both found in pre-flight:
+this machine is `aarch64` (Windows on ARM) while the worker image is a single-manifest
+`amd64` build with no ARM variant, and outbound TCP to `www.codabench.org:5672` is
+filtered here while :443 is open. Emulation plus a tunnel would stack two workarounds
+under a multi-hour numeric job.
+
+**Rejected for now: a cloud virtual machine.** The GitHub Student Developer Pack includes
+$100 of Azure credit with no payment method required; a `Standard_D4s_v3` (4 vCPU / 16 GB)
+matches the organizers' `t3.xlarge` at roughly $1 for a 5-hour run. Held in reserve rather
+than taken, because the deadline allows it and because a free path may resolve first.
+`codabench/bootstrap_vm.sh` is written and committed so taking this option later costs one
+paste rather than an evening.
+
+**What this decision is actually worth, stated plainly.** Q5 requires submissions to both
+leaderboards; both were made. A scored EB-NeRD result buys one thing: a second test of the
+calibration claim (offline val deltas transfer to the leaderboard), currently resting on a
+single MIND data point, on the dataset where our own harness says the honest signal is
+weakest. Valuable to the design note, graded nowhere. It does not justify displacing the
+hand-in.
+
+**If a score does land, it must be disclosed** as having come from a self-hosted worker
+following the organizers' documented procedure — a fresh score on a competition whose
+workers are switched off otherwise invites exactly the wrong question.

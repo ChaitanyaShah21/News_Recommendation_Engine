@@ -218,8 +218,12 @@ than one whose absolute numbers happen to match.
 *MIND leaderboard, 26 Aug 2026 — `csharp`, rank 54/90: AUC 0.6191, MRR 0.2997,
 nDCG@5 0.3214, nDCG@10 0.3774.*
 
-EB-NeRD: 13,536,710 predictions submitted and pending. The RecSys 2024 challenge's
-scoring container is a known throughput bottleneck (confirmed by the course
-instructor), which is itself the reason all iteration in this project was done against
-the offline harness rather than against a leaderboard — and the calibration result above
-is what made that viable.
+EB-NeRD: 13,536,710 predictions submitted, validated and still unscored. The reason is
+structural rather than a queue delay — the RecSys 2024 challenge has concluded and the
+compute workers that scored it were the organizers' own virtual machines, retired with
+it. Participants can now attach their own worker to the competition queue, a path the
+organizers document and publish credentials for, at roughly four to five hours per
+submission. This is precisely why every design decision in this project was taken against
+the offline harness rather than a leaderboard, and the calibration result above is what
+made that defensible: a system that can only be tuned by submitting cannot be tuned at
+all once the graders go home.
