@@ -23,9 +23,12 @@ bundles on 2026-08-25 before a line of this was written:
      and the clicked filter yields empty lists, which is what D3 specifies for
      unlabeled rows). Silent-and-correct today is silent-and-wrong the day the
      format changes, so `assert_unlabeled` checks it instead of trusting it.
-  3. EB-NeRD's test behaviors carries an **`is_beyond_accuracy` flag** marking
-     the RecSys 2024 separately-scored subset. Carried through rather than
-     dropped, so the submission writer can act on the competition's rules.
+  3. EB-NeRD's test behaviors carries an **`is_beyond_accuracy` flag**, true for
+     exactly 200,000 of 13,536,710 rows (counted). Carried through rather than
+     dropped so the submission writer can see it. What that flag *means* to the
+     scorer is **not** verified - the published Submission Guidelines never
+     mention it - so we predict every row, which the official example submission
+     confirms is correct: it contains all 13,536,710 lines.
 """
 
 from __future__ import annotations
