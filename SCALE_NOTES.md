@@ -214,3 +214,84 @@ noticed had it gone the other way.
 other work runs on the same cores is not a benchmark of the code. The ~1.9× slowdown
 observed under contention was enough to turn a correct 43-minute estimate into an
 80-minute alarm.
+
+---
+
+## Engineering benchmarks (2026-08-26): latency, and the alternatives we rejected
+
+Run after the course email made the grading criterion explicit — *"tool/db/index
+choices, their impact on engineering metrics, how they compare to alternatives …
+optimizations improving latency/throughputs"*. Two claims in the decision log were
+arguments rather than measurements; this converts them. `scripts/benchmark_engineering.py`.
+
+### Index construction
+
+| | MIND (65,238 docs) | EB-NeRD (11,777 docs) |
+|---|---|---|
+| BM25 inverted index | **1.61 s**, 60,951 terms, 2,361,877 non-zeros, **19 MB** | 0.23 s |
+| Embedding matrix load (Parquet → contiguous) | **0.85 s**, (65238, 384), **100 MB** | — |
+| BM25 queries, all users | 0.64 s (50,000 users) | — |
+| User vectors, all users | 0.88 s, 77 MB | — |
+| Peak RSS | 1.05 GB | 0.58 GB |
+
+**The dense embedding matrix is 5.2× the size of the sparse BM25 index** (100 MB vs 19 MB)
+for the same corpus. Sparse wins decisively on storage. It does not win on speed — below.
+
+### Per-query retrieval latency, top-200, batch size 1 (the serving number)
+
+| method | p50 | p95 | p99 |
+|---|---|---|---|
+| BM25 sparse (D14, ours) | 10.10 ms | 13.47 ms | 20.21 ms |
+| semantic brute-force (D21, ours) | **1.73 ms** | 4.51 ms | 6.50 ms |
+
+**Semantic retrieval is 5.8× faster than BM25 per query, which inverts the usual
+intuition.** A dense (65238 × 384) float32 product is 100 MB of sequential,
+SIMD-friendly, cache-predictable work handed to BLAS; a sparse query vector against a CSR
+matrix does irregular scattered gathers. *Sparse means less arithmetic, not less time.*
+It also retires any worry that D21's "brute force" was a compromise: at this scale it is
+the faster option as well as the exact one.
+
+**Re-ranking is ~1,000× cheaper than retrieval**: 0.01 ms per impression on MIND
+(35.9 candidates mean), 0.00 ms on EB-NeRD (11.8). This is precisely why the leaderboard
+task is tractable over 13.5 M impressions while whole-corpus retrieval over the same set
+would not be — and it is the quantitative form of the retrieval-vs-re-ranking distinction.
+
+### What batching actually bought (D14/D21), quantified
+
+| batch size | semantic throughput |
+|---|---|
+| 1 | 620 queries/s |
+| **32** | **1,269 queries/s** |
+| 256 | 727 queries/s ← *regression* |
+
+**Correction to how D14/D21 described batching.** It was framed as an optimisation; it is
+really a *memory necessity* with a modest and non-monotone throughput effect. Only ~2× at
+the optimum, and performance **degrades past ~32** because a (256 × 65,238) float32 score
+block is 67 MB and no longer fits cache. The real justification stands unchanged — a full
+37,777 × 65,238 matrix is 9.9 GB against 7 GB of RAM — but "batching makes it faster" was
+never measured and is only true up to a batch of about 32.
+
+### The rejected alternative, measured: `rank_bm25` (D14)
+
+| | build | per query (p50) | full val run |
+|---|---|---|---|
+| `rank_bm25` | **0.61 s** | 2,183.84 ms | **30.3 hours** |
+| ours (scipy.sparse) | 1.61 s | **10.10 ms** | **8.4 min** |
+
+**216× per query on MIND; 692× on EB-NeRD** (693.34 ms vs ~1 ms over 11,777 docs).
+
+**D14's stated justification was overstated and its conclusion was right.** It claimed
+37,777 queries × 65,238 documents "would not finish". Measured, it finishes — in about a
+day. Recorded as a correction rather than quietly restated, because an argument that
+overshoots is a defect in the reasoning even when the decision it supports is correct.
+
+**The genuine trade-off is build-time versus query-time work, and it runs the opposite way
+to the headline.** `rank_bm25` *builds 2.6× faster* than our index (0.61 s vs 1.61 s)
+because it merely stores tokenised documents and defers everything to query time. We pay
+1.00 s more up front to construct a real document–term matrix, and recover it after
+
+    1.00 s extra build / 2.174 s saved per query = **0.46 queries**
+
+i.e. our index has paid for itself before the first query has finished. That is the
+defensible form of the argument: not "the library is slow", but "the library moves the
+work to the wrong side of a boundary crossed 50,000 times".

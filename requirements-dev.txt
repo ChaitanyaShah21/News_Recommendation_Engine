@@ -1,0 +1,2 @@
+# benchmark-only: measures the D14 alternative, not used by the pipeline
+rank-bm25==0.2.2
