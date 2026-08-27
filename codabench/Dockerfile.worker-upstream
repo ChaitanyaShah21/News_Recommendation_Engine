@@ -51,10 +51,16 @@ ADD ${UPSTREAM}/src/settings/logs_loguru.py       /logs_loguru.py
 # context, so make them readable.
 RUN chmod 0644 /compute_worker.py /celery_config.py /logs_loguru.py
 
-# Prove it imports before it can ever claim a job. Dummy env so Settings resolves.
-RUN BROKER_URL="pyamqp://guest:guest@localhost:5672//" \
-    HOST_DIRECTORY="/codabench" \
-    python -c "import compute_worker; print('IMPORT OK')"
+# NO build-time import check. compute_worker.py calls docker.from_env() at module
+# import (the "Using DOCKER without GPU capabilities" line), and `docker build` has
+# no Docker socket, so importing it during the build can only ever fail. Run the
+# check at RUN time with the socket mounted instead -- see README notes; it is
+# still free, because an import failure happens long before the worker connects to
+# the queue or claims a submission:
+#
+#   docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+#       --env-file /codabench/.env worker-upstream \
+#       "python -c 'import compute_worker; print(\"IMPORT OK\")'"
 
 # Same entrypoint/command as the released image.
 ENTRYPOINT ["/bin/bash", "-c"]
