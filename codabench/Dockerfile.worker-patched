@@ -14,8 +14,19 @@
 # It sits immediately above the logger.info(json.dumps(run_args)) call that
 # `latest` crashes on -- which is how we knew latest predated the fix.
 #
-# This adds exactly that line to the released image. Verified 2026-08-27: the
-# patched worker logged "Submission updated successfully!" and began scoring.
+# A SECOND released-image bug appears right after that one is fixed. EB-NeRD is a
+# result-only competition, so no program runs ("no program to execute"), so the
+# output directory is never created -- and push_output opens output/metadata
+# unconditionally:
+#     FileNotFoundError: '/codabench/tmp.../output/metadata'
+# It dies before uploading prediction_result.zip, so the scoring phase then
+# retries a download that will never exist. develop fixes this too:
+#     # Create output_dir if does not exist
+#     os.makedirs(self.output_dir, exist_ok=True)
+#
+# This image applies BOTH fixes. Prefer run_develop_worker.sh, which mounts the
+# whole upstream file and so picks up any further fixes we have not hit yet;
+# keep this as the fallback if that file will not import in the released image.
 FROM codalab/competitions-v2-compute-worker:latest
 
 # Asserts rather than sed: fail loudly at BUILD time if the image layout changed
@@ -26,3 +37,11 @@ assert n in s, 'run_wrapper signature not found - image layout changed'; \
 assert 'secret=str(run_args' not in s, 'already patched'; \
 open(p,'w').write(s.replace(n, n+'    run_args.update(secret=str(run_args[\"secret\"]))\n',1)); \
 print('patched ok')"
+
+RUN python3 -c "\
+p='/compute_worker.py'; s=open(p).read(); \
+n='        metadata_path = os.path.join(self.output_dir, \"metadata\")\n'; \
+assert n in s, 'metadata_path anchor not found - image layout changed'; \
+assert 'makedirs(self.output_dir' not in s, 'already patched'; \
+open(p,'w').write(s.replace(n, '        os.makedirs(self.output_dir, exist_ok=True)\n'+n, 1)); \
+print('output_dir patch ok')"
