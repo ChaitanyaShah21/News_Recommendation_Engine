@@ -1812,3 +1812,19 @@ hand-in.
 **If a score does land, it must be disclosed** as having come from a self-hosted worker
 following the organizers' documented procedure — a fresh score on a competition whose
 workers are switched off otherwise invites exactly the wrong question.
+
+**OUTCOME, 2026-08-27.** Waiting was overtaken by events: a self-hosted worker was built
+after all, because the published one turned out to be actively destructive rather than
+merely absent. Every released `codalab/competitions-v2-compute-worker` tag is incompatible
+with Codabench's live server in three places, and because Celery acknowledges on delivery,
+a failing worker **silently removes submissions from the shared queue** — 42 of other
+participants' were lost that way before we understood it. A worker built from upstream's
+own source on the runtime upstream declares (Python 3.13) works, and scored submission
+904082: **AUC 0.5396, rank 147**.
+
+The decision's *reasoning* survives its reversal. The claim that made waiting affordable —
+that nothing in this project depended on leaderboard feedback — is exactly what made the
+whole detour optional, and it is what the EB-NeRD number then confirmed: val 0.5413 against
+leaderboard 0.5396, agreement to 0.0017. Full diagnosis in `PROGRESS.md`'s error log;
+working image in `codabench/Dockerfile.worker-upstream`.
+

@@ -218,12 +218,29 @@ than one whose absolute numbers happen to match.
 *MIND leaderboard, 26 Aug 2026 — `csharp`, rank 54/90: AUC 0.6191, MRR 0.2997,
 nDCG@5 0.3214, nDCG@10 0.3774.*
 
-EB-NeRD: 13,536,710 predictions submitted, validated and still unscored. The reason is
-structural rather than a queue delay — the RecSys 2024 challenge has concluded and the
-compute workers that scored it were the organizers' own virtual machines, retired with
-it. Participants can now attach their own worker to the competition queue, a path the
-organizers document and publish credentials for, at roughly four to five hours per
-submission. This is precisely why every design decision in this project was taken against
-the offline harness rather than a leaderboard, and the calibration result above is what
-made that defensible: a system that can only be tuned by submitting cannot be tuned at
-all once the graders go home.
+**EB-NeRD tests the same claim a second time, and harder.** 13,536,710 predictions scored
+on the RecSys 2024 leaderboard: **AUC 0.5396**, against an offline validation AUC of
+**0.5413** — the two agree to **0.0017**. This is the dataset where our own harness said
+the honest signal is weakest (BM25 cannot re-rank it at all, §Findings), so it is the less
+forgiving of the two tests, and here it is the *absolute level* that transfers, not merely
+the delta.
+
+![EB-NeRD leaderboard, 2026-08-27: csharp rank 147, AUC 0.5396](figures/ebnerd_csharp.png)
+
+*RecSys 2024 / EB-NeRD leaderboard, 27 Aug 2026 — `csharp`, rank 147: AUC 0.5396,
+MRR 0.3441, nDCG@5 0.3817, nDCG@10 0.4608.*
+
+**How that score was obtained is worth stating.** The challenge has concluded and the
+compute workers that scored it were the organizers' own virtual machines, retired with it,
+so the submission sat unscored. The organizers publish a procedure for attaching your own
+worker to the competition queue; we did that, on a rented 4-core/16 GB Linux host. It did
+not work as published — every released worker image is incompatible with Codabench's
+current server in three separate places, one of which silently discards queued submissions
+rather than failing them. Diagnosing that and building a worker that runs is recorded in
+`PROGRESS.md`'s error log. The scoring itself is unmodified: the organizers' scoring
+program, their hidden reference data, their metrics.
+
+Which sharpens rather than softens the point above. A system that can only be evaluated by
+submitting cannot be evaluated at all once the graders go home — and on this competition
+they had. Everything defensible about the EB-NeRD numbers in this note was established
+offline, before any of that was known.
