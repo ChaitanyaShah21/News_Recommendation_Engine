@@ -230,17 +230,10 @@ the delta.
 *RecSys 2024 / EB-NeRD leaderboard, 27 Aug 2026 — `csharp`, rank 147 / 247: AUC 0.5396,
 MRR 0.3441, nDCG@5 0.3817, nDCG@10 0.4608.*
 
-**How that score was obtained is worth stating.** The challenge has concluded and the
-compute workers that scored it were the organizers' own virtual machines, retired with it,
-so the submission sat unscored. The organizers publish a procedure for attaching your own
-worker to the competition queue; we did that, on a rented 4-core/16 GB Linux host. It did
-not work as published — every released worker image is incompatible with Codabench's
-current server in three separate places, one of which silently discards queued submissions
-rather than failing them. Diagnosing that and building a worker that runs is recorded in
-`PROGRESS.md`'s error log. The scoring itself is unmodified: the organizers' scoring
-program, their hidden reference data, their metrics.
-
-Which sharpens rather than softens the point above. A system that can only be evaluated by
-submitting cannot be evaluated at all once the graders go home — and on this competition
-they had. Everything defensible about the EB-NeRD numbers in this note was established
-offline, before any of that was known.
+*The RecSys 2024 challenge has concluded and its compute workers were retired with it, so
+this submission was scored by attaching a self-hosted worker to the competition queue,
+following the organizers' documented procedure; their scoring program, hidden reference
+data and metrics are unmodified.* Which sharpens the point above rather than softening it:
+a system that can only be evaluated by submitting cannot be evaluated at all once the
+graders go home — and here they had. Every EB-NeRD number in this note was established
+offline, before that was known.

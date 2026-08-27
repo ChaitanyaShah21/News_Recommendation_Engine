@@ -1799,8 +1799,8 @@ under a multi-hour numeric job.
 $100 of Azure credit with no payment method required; a `Standard_D4s_v3` (4 vCPU / 16 GB)
 matches the organizers' `t3.xlarge` at roughly $1 for a 5-hour run. Held in reserve rather
 than taken, because the deadline allows it and because a free path may resolve first.
-`codabench/bootstrap_vm.sh` is written and committed so taking this option later costs one
-paste rather than an evening.
+Worker tooling was written for this and later removed from the repository as unrelated to
+the pipeline; it survives in git history.
 
 **What this decision is actually worth, stated plainly.** Q5 requires submissions to both
 leaderboards; both were made. A scored EB-NeRD result buys one thing: a second test of the
@@ -1825,6 +1825,7 @@ own source on the runtime upstream declares (Python 3.13) works, and scored subm
 The decision's *reasoning* survives its reversal. The claim that made waiting affordable —
 that nothing in this project depended on leaderboard feedback — is exactly what made the
 whole detour optional, and it is what the EB-NeRD number then confirmed: val 0.5413 against
-leaderboard 0.5396, agreement to 0.0017. Full diagnosis in `PROGRESS.md`'s error log;
-working image in `codabench/Dockerfile.worker-upstream`.
+leaderboard 0.5396, agreement to 0.0017. Full diagnosis in `PROGRESS.md`'s error log. The worker
+tooling itself has been removed from the repository as unrelated to the assignment; it
+remains in git history (see the commits of 2026-08-27).
 
