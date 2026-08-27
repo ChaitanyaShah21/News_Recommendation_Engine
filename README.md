@@ -176,6 +176,18 @@ Predicted from val, delivered on the leaderboard, agreeing to **0.0003** — the
 harness ranks design changes correctly, which is what allowed every tuning decision to be
 made without spending submissions.
 
+**EB-NeRD tests the same claim, and transfers the absolute level rather than the delta:**
+
+| | val AUC | EB-NeRD leaderboard | rank |
+|---|---|---|---|
+| **N = 100** (submitted) | **0.5413** | **0.5396** | **147 / 247** |
+
+A gap of **0.0017**, on the dataset where the same harness says the honest signal is
+weakest — BM25 cannot re-rank it at all (AUC 0.4966 against a random 0.4987). Leaderboard
+metrics in full: AUC 0.5396, MRR 0.3441, nDCG@5 0.3817, nDCG@10 0.4608.
+
+Screenshots for both leaderboards are in `reports/figures/`.
+
 **Engineering metrics** (`scripts/benchmark_engineering.py`, MIND, 65,238 articles):
 
 | | build | size | per query p50 | p95 |
