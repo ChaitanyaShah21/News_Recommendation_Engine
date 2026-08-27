@@ -1,0 +1,52 @@
+# Run UPSTREAM's compute_worker.py on a runtime that can actually execute it.
+#
+# Why this exists. Codabench's published worker images are incompatible with
+# Codabench's live server in at least three places:
+#   1. the submission secret is echoed back unconverted -> HTTP 500 (cpu1.1) or
+#      "Object of type UUID is not JSON serializable" (latest);
+#   2. output/ is never created for result-only competitions -> push_output dies
+#      on output/metadata, before uploading the prediction result;
+#   3. the run-args keys were renamed server-side. The released image reads
+#      `program_data` / `ingestion_program` while the server sends
+#      `scoring_program_data` / `ingestion_program_data`, so both bundles are
+#      silently skipped -> "Could not find scores file". It also never fetches
+#      `submission_data` at all, and has no equivalent of upstream's
+#      _copy_submission_to_input_res(), so a result-only submission never reaches
+#      the scoring program. That third one is a missing code path, not a rename,
+#      which is where back-porting stopped being sensible.
+#
+# Upstream `develop` has all of it. Mounting that file over a released image fails
+# because it needs Python 3.10+ (it calls a staticmethod object directly) and the
+# published images ship 3.9. So: give upstream's file a 3.11 runtime, and take
+# only `logs_loguru` from the released image -- its one local import.
+#
+# The build-time import check is the point of this design: an import failure costs
+# nothing, whereas every earlier attempt had to claim a real submission from the
+# shared queue to learn anything.
+
+FROM codalab/competitions-v2-compute-worker:latest AS released
+
+FROM python:3.11-slim
+
+# Upstream's full third-party import set, read off its import block:
+#   requests websockets yaml docker urllib3 rich kombu celery billiard loguru
+# (billiard arrives with celery; kombu too, but named for clarity.)
+RUN pip install --no-cache-dir \
+        celery kombu billiard docker requests PyYAML \
+        websockets rich loguru urllib3
+
+# The one local module upstream imports. If this path is wrong the build fails
+# here, loudly, which is what we want.
+COPY --from=released /logs_loguru.py /logs_loguru.py
+
+ADD https://raw.githubusercontent.com/codalab/codabench/develop/compute_worker/compute_worker.py \
+    /compute_worker.py
+
+# Prove it imports before it can ever claim a job. Dummy env so Settings resolves.
+RUN BROKER_URL="pyamqp://guest:guest@localhost:5672//" \
+    HOST_DIRECTORY="/codabench" \
+    python -c "import compute_worker; print('IMPORT OK')"
+
+# Same entrypoint/command as the released image.
+ENTRYPOINT ["/bin/bash", "-c"]
+CMD ["celery -A compute_worker worker -l info -Q compute-worker -n compute-worker@$HOSTNAME --concurrency=1"]
