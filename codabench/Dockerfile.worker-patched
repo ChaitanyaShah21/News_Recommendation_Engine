@@ -1,0 +1,28 @@
+# Working Codabench compute worker for competition 2469, 2026-08-27.
+#
+# Every PUBLISHED tag of codalab/competitions-v2-compute-worker is broken against
+# the current server:
+#   cpu1.1  (2024-08-05, the tag the EB-NeRD README pins)
+#           -- echoes the submission secret back as Kombu's serialized UUID dict,
+#              server 500s on every status update.
+#   latest  (v1.22, 2026-01-27)
+#           -- receives a real uuid.UUID and dies in run_wrapper's own log line:
+#              TypeError: Object of type UUID is not JSON serializable
+#
+# Upstream `develop` fixes both with ONE line, which no released tag contains:
+#     run_args.update(secret=str(run_args["secret"]))
+# It sits immediately above the logger.info(json.dumps(run_args)) call that
+# `latest` crashes on -- which is how we knew latest predated the fix.
+#
+# This adds exactly that line to the released image. Verified 2026-08-27: the
+# patched worker logged "Submission updated successfully!" and began scoring.
+FROM codalab/competitions-v2-compute-worker:latest
+
+# Asserts rather than sed: fail loudly at BUILD time if the image layout changed
+# or if it is already patched, instead of producing a silently broken worker.
+RUN python3 -c "\
+p='/compute_worker.py'; s=open(p).read(); n='def run_wrapper(run_args):\n'; \
+assert n in s, 'run_wrapper signature not found - image layout changed'; \
+assert 'secret=str(run_args' not in s, 'already patched'; \
+open(p,'w').write(s.replace(n, n+'    run_args.update(secret=str(run_args[\"secret\"]))\n',1)); \
+print('patched ok')"
