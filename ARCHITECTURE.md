@@ -1820,7 +1820,7 @@ with Codabench's live server in three places, and because Celery acknowledges on
 a failing worker **silently removes submissions from the shared queue** — 42 of other
 participants' were lost that way before we understood it. A worker built from upstream's
 own source on the runtime upstream declares (Python 3.13) works, and scored submission
-904082: **AUC 0.5396, rank 147**.
+904082: **AUC 0.5396, rank 147 / 247**.
 
 The decision's *reasoning* survives its reversal. The claim that made waiting affordable —
 that nothing in this project depended on leaderboard feedback — is exactly what made the

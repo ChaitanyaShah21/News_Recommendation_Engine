@@ -225,9 +225,9 @@ the honest signal is weakest (BM25 cannot re-rank it at all, §Findings), so it 
 forgiving of the two tests, and here it is the *absolute level* that transfers, not merely
 the delta.
 
-![EB-NeRD leaderboard, 2026-08-27: csharp rank 147, AUC 0.5396](figures/ebnerd_csharp.png)
+![EB-NeRD leaderboard, 2026-08-27: csharp rank 147 / 247, AUC 0.5396](figures/ebnerd_csharp.png)
 
-*RecSys 2024 / EB-NeRD leaderboard, 27 Aug 2026 — `csharp`, rank 147: AUC 0.5396,
+*RecSys 2024 / EB-NeRD leaderboard, 27 Aug 2026 — `csharp`, rank 147 / 247: AUC 0.5396,
 MRR 0.3441, nDCG@5 0.3817, nDCG@10 0.4608.*
 
 **How that score was obtained is worth stating.** The challenge has concluded and the

@@ -37,3 +37,6 @@ venv/
 
 # ---- Codabench worker: live shared-queue credentials ----
 codabench/.env
+
+# ---- Design-note build intermediate (the PDF itself is a deliverable, keep it) ----
+reports/design_note.html
