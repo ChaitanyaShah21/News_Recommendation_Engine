@@ -295,3 +295,37 @@ because it merely stores tokenised documents and defers everything to query time
 i.e. our index has paid for itself before the first query has finished. That is the
 defensible form of the argument: not "the library is slow", but "the library moves the
 work to the wrong side of a boundary crossed 50,000 times".
+
+---
+
+# Assignment 2
+
+## Phase A1 — ingesting `ebnerd_large` (2026-09-15)
+
+**The sample's size is nearly free at ingestion; the scan is not.**
+- *Ad hoc script, filter applied after the read:* a 5% and a 15% user sample both took
+  ~50 s at ~5 GB peak. The time is dominated by reading all 24.6M behaviour rows plus
+  2.4 GB of history, not by how many rows are kept.
+- *Production path, filter inside the Parquet scan:* the whole store (MIND included)
+  rebuilt in **40 s at 3.3 GB peak**. That is 1.7 GB less, because Polars skips row
+  groups rather than materialising and discarding them.
+
+**Where it breaks at 10×.**
+- **Storage:** `history.parquet` is the heaviest raw file (1.24 GB train, 1.13 GB
+  validation, median 92 / 80 clicks per user). Its list columns decompress far beyond
+  their on-disk size.
+- **Full `ebnerd_large`, unsampled (20× the rows):** would put history alone well past
+  11 GB RAM. The current `.collect()`-to-DataFrame return type in `ingest_ebnerd` is the
+  first thing to break, and would need to become a streaming or per-user-chunk write.
+- **A 50% sample** would likely still fit.
+
+**Size is paid downstream, and the next bottleneck is already visible.**
+- **Training rows:** a re-ranker over retrieved candidates has one row per (impression,
+  candidate). 597,348 train impressions × K=100 is ~60M rows, which exceeds RAM before a
+  single feature is computed. Hence D36 subsamples training impressions separately.
+- **Bootstrap:** its cost grows linearly with evaluated impressions (435,677 val now,
+  against 17,749 in A1), ~25× per resample.
+
+**Reuse beat recompute by 150×.** Assembling store embeddings from the Phase-5 testset
+vectors took 7 s, against ~18 min to re-embed 125,541 articles on CPU. It only works
+because the two article files were *checked* frame-equal first.

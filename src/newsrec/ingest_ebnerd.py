@@ -4,6 +4,10 @@ EB-NeRD ships as Parquet - self-describing schema, no header row to supply
 ourselves (see GLOSSARY.md's "Parquet" entry). Same job as ingest_mind.py:
 raw file in, unified shape out, matching the three tables from D3.
 
+A2 (D33) trains on a user-level sample of ebnerd_large rather than the demo
+bundle. The sample is applied here, at ingestion, so nothing downstream ever
+sees an unsampled user - see `user_sample_filter`.
+
 Note (not yet handled, deferred to Phase 5): the EB-NeRD *test* split's
 behaviors.parquet has no article_ids_clicked column at all (it's the label
 we're predicting) - load_behaviors below assumes a labeled split
@@ -14,6 +18,34 @@ the test split unmodified.
 from pathlib import Path
 
 import polars as pl
+
+
+def user_sample_filter(user_sample_pct: int | None) -> pl.Expr:
+    """Return the row filter that keeps D33's user sample: `user_id % 100 < pct`.
+
+    Applied to the *raw numeric* user_id, before ingestion adds the "ebnerd:"
+    prefix - modulo means nothing on a string. Keeps or drops whole users,
+    never individual impressions, so a kept user's history row and impressions
+    stay in sync. Deterministic (no random generator) and nested: the users
+    kept at pct=5 are a subset of those kept at any larger pct. Residue
+    uniformity on ebnerd_large was verified before choosing this (D33).
+
+    `None` means no sampling. A null user_id evaluates to null and is dropped
+    by the filter; ebnerd_large has none (checked 2026-09-15).
+    """
+    if user_sample_pct is None:
+        return pl.lit(True)
+    # bool is a subclass of int in Python, so `True` would otherwise pass as 1%.
+    # A YAML value of `5.0` or `"5"` is a config mistake worth failing on too.
+    if (
+        isinstance(user_sample_pct, bool)
+        or not isinstance(user_sample_pct, int)
+        or not 1 <= user_sample_pct <= 100
+    ):
+        raise ValueError(
+            f"user_sample_pct must be an int in 1..100 or None, got {user_sample_pct!r}"
+        )
+    return pl.col("user_id") % 100 < user_sample_pct
 
 
 def load_articles(articles_parquet_path: Path) -> pl.DataFrame:
@@ -48,19 +80,22 @@ def load_articles(articles_parquet_path: Path) -> pl.DataFrame:
     )
 
 
-def load_behaviors(behaviors_parquet_path: Path) -> pl.DataFrame:
+def load_behaviors(
+    behaviors_parquet_path: Path, user_sample_pct: int | None = None
+) -> pl.DataFrame:
     """Read one EB-NeRD behaviors.parquet file (train or validation split),
-    return it in the unified `impressions` schema.
+    return it in the unified `impressions` schema, keeping only D33's user
+    sample when `user_sample_pct` is given.
 
-    Built on pl.scan_parquet (lazy), not pl.read_parquet (eager): this same
-    file layout is used for EB-NeRD-large (12M+ rows) in a later phase, and
-    scan_parquet lets Polars push column selection down before materializing
-    anything. Still .collect() at the end so the *return type* matches
-    ingest_mind.py's functions (a plain DataFrame, not a LazyFrame) - true
-    batched/chunked processing for the large bundle is a Phase 5 concern,
-    this alone doesn't solve that, it just avoids unnecessary work now.
+    Built on pl.scan_parquet (lazy), not pl.read_parquet (eager): Polars
+    pushes both the column selection and the sample filter down into the
+    file read, so on ebnerd_large the 95% of unsampled rows are skipped while
+    reading rather than loaded and then thrown away. Still .collect() at the
+    end so the *return type* matches ingest_mind.py's functions.
     """
-    behaviors = pl.scan_parquet(behaviors_parquet_path)
+    behaviors = pl.scan_parquet(behaviors_parquet_path).filter(
+        user_sample_filter(user_sample_pct)
+    )
 
     def prefixed(list_col: str) -> pl.Expr:
         """EB-NeRD's inview/clicked lists are already lists - just int article
@@ -90,12 +125,21 @@ def load_behaviors(behaviors_parquet_path: Path) -> pl.DataFrame:
     )
 
 
-def load_history(history_parquet_path: Path) -> pl.DataFrame:
+def load_history(
+    history_parquet_path: Path, user_sample_pct: int | None = None
+) -> pl.DataFrame:
     """Read one EB-NeRD history.parquet file, return it in the unified `history`
-    schema. Unlike MIND, EB-NeRD's history file is already one row per user -
-    no collapsing/deduplication needed, verified against real demo data
-    (1,590 history rows for 1,590 unique behaviors users, exactly 1:1)."""
-    history = pl.scan_parquet(history_parquet_path)
+    schema, keeping only D33's user sample when `user_sample_pct` is given.
+    Must be called with the same `user_sample_pct` as load_behaviors, or the
+    two tables describe different users.
+
+    Unlike MIND, EB-NeRD's history file is already one row per user - no
+    collapsing/deduplication needed, verified against real demo data (1,590
+    history rows for 1,590 unique behaviors users, exactly 1:1) and again on
+    the ebnerd_large 5% sample (39,260 / 39,420 per split, D33)."""
+    history = pl.scan_parquet(history_parquet_path).filter(
+        user_sample_filter(user_sample_pct)
+    )
 
     return (
         history.select(

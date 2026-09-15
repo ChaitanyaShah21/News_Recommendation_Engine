@@ -45,23 +45,23 @@ MIND is a gated HuggingFace dataset:
 """
 
 EBNERD_DOWNLOAD_HELP = """
-EB-NeRD-demo raw files not found at {raw_root}
+EB-NeRD-large raw files not found at {raw_root}
 
-Direct download, no login required:
-  wget https://ebnerd-dataset.s3.eu-west-1.amazonaws.com/ebnerd_demo.zip
+Direct download, no login required (about 3.4 GB unzipped):
+  wget https://ebnerd-dataset.s3.eu-west-1.amazonaws.com/ebnerd_large.zip
 
 Unzip into {raw_root}/ (should contain articles.parquet, train/, validation/)
 """
 
 
-def load_raw_root(config_filename: str) -> Path:
-    """Read `raw_root` out of one configs/*.yaml file. The config's own
-    `raw_root` value (e.g. "data/raw/mind") is written as repo-root-relative,
-    so it gets resolved against REPO_ROOT too - not left relative to
-    whatever the caller's cwd happens to be."""
+def load_config(config_filename: str) -> dict:
+    """Read one configs/*.yaml file, with its `raw_root` value (written as
+    repo-root-relative, e.g. "data/raw/mind") resolved against REPO_ROOT -
+    not left relative to whatever the caller's cwd happens to be."""
     with open(REPO_ROOT / "configs" / config_filename) as f:
         config = yaml.safe_load(f)
-    return REPO_ROOT / config["raw_root"]
+    config["raw_root"] = REPO_ROOT / config["raw_root"]
+    return config
 
 
 def check_raw_data(mind_root: Path, ebnerd_root: Path) -> None:
@@ -78,14 +78,22 @@ def check_raw_data(mind_root: Path, ebnerd_root: Path) -> None:
 
 
 def main() -> None:
-    mind_root = load_raw_root("mind.yaml")
-    ebnerd_root = load_raw_root("ebnerd.yaml")
+    mind_root = load_config("mind.yaml")["raw_root"]
+    ebnerd_config = load_config("ebnerd.yaml")
+    ebnerd_root = ebnerd_config["raw_root"]
+    # Absent key -> None -> every user kept. Validated inside ingestion, which
+    # rejects anything that is not an int in 1..100.
+    ebnerd_pct = ebnerd_config.get("user_sample_pct")
 
     check_raw_data(mind_root, ebnerd_root)
 
-    print(f"Building feature store -> {OUTPUT_DIR} ...")
+    sample_note = f"{ebnerd_pct}% of users" if ebnerd_pct is not None else "all users"
+    print(f"Building feature store -> {OUTPUT_DIR} (EB-NeRD: {sample_note}) ...")
     build_feature_store(
-        mind_root=mind_root, ebnerd_root=ebnerd_root, output_dir=OUTPUT_DIR
+        mind_root=mind_root,
+        ebnerd_root=ebnerd_root,
+        output_dir=OUTPUT_DIR,
+        ebnerd_user_sample_pct=ebnerd_pct,
     )
     print("Done.")
 

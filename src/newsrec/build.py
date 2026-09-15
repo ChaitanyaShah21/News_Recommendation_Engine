@@ -14,12 +14,21 @@ import polars as pl
 from newsrec import ingest_ebnerd, ingest_mind, temporal_split
 
 
-def build_feature_store(mind_root: Path, ebnerd_root: Path, output_dir: Path) -> None:
+def build_feature_store(
+    mind_root: Path,
+    ebnerd_root: Path,
+    output_dir: Path,
+    ebnerd_user_sample_pct: int | None = None,
+) -> None:
     """Ingest MIND-small from `mind_root` (containing MINDsmall_train/,
     MINDsmall_dev/) and EB-NeRD from `ebnerd_root` (containing
     articles.parquet, train/, validation/), apply the temporal split, and
     write articles.parquet, impressions.parquet, and history.parquet to
     `output_dir`.
+
+    `ebnerd_user_sample_pct` keeps EB-NeRD users with `user_id % 100 < pct`
+    (D33); None keeps every user. Articles are never sampled - every user's
+    candidates and history must still resolve to an article row.
     """
     # --- MIND ---
     mind_train_articles = ingest_mind.load_articles(
@@ -51,18 +60,21 @@ def build_feature_store(mind_root: Path, ebnerd_root: Path, output_dir: Path) ->
     )
 
     # --- EB-NeRD --- (one shared articles.parquet, no merge needed)
+    # The same sample percentage goes to all four user-keyed reads - a mismatch
+    # would leave impressions whose user has no history row, or the reverse.
+    pct = ebnerd_user_sample_pct
     ebnerd_articles = ingest_ebnerd.load_articles(ebnerd_root / "articles.parquet")
     ebnerd_train_behaviors = ingest_ebnerd.load_behaviors(
-        ebnerd_root / "train" / "behaviors.parquet"
+        ebnerd_root / "train" / "behaviors.parquet", user_sample_pct=pct
     )
     ebnerd_val_behaviors = ingest_ebnerd.load_behaviors(
-        ebnerd_root / "validation" / "behaviors.parquet"
+        ebnerd_root / "validation" / "behaviors.parquet", user_sample_pct=pct
     )
     ebnerd_train_history = ingest_ebnerd.load_history(
-        ebnerd_root / "train" / "history.parquet"
+        ebnerd_root / "train" / "history.parquet", user_sample_pct=pct
     )
     ebnerd_val_history = ingest_ebnerd.load_history(
-        ebnerd_root / "validation" / "history.parquet"
+        ebnerd_root / "validation" / "history.parquet", user_sample_pct=pct
     )
 
     # --- Temporal split, per dataset (D7/D8) ---

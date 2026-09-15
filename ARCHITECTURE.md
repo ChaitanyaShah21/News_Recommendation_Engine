@@ -1951,3 +1951,31 @@ rows; validation 39,420 ↔ 39,420). No empty histories.
 **Costs accepted:** EB-NeRD numbers are on a 5% user sample, not the full population. The
 leaderboard submission still scores the full 13.5M-impression testset. Only training and
 offline evaluation use the sample.
+
+**Implementation.**
+- **Where the filter runs:** `ingest_ebnerd.user_sample_filter(pct)` applies to the raw
+  numeric `user_id`, before the `ebnerd:` prefix (modulo means nothing on a string). It
+  is pushed into the Parquet scan for all four user-keyed reads, with one shared `pct`.
+  Articles are never sampled.
+- **Validation:** an int in 1..100 or None. `True`, `5.0` and `"5"` are rejected rather
+  than coerced.
+- **Config — `ebnerd.yaml` repointed rather than a second config (Chaitanya).** A second
+  config would have needed a flag on every downstream script, or scripts would silently
+  read whichever store was built last. A1's demo store reproduces from tag
+  `phase-5-complete`.
+- **Embeddings:** `scripts/assemble_embeddings.py` builds `embeddings.parquet` by
+  combining existing vectors instead of re-embedding. It refuses to write unless IDs
+  match the store exactly, and writes to a temporary file then renames, because the
+  MIND rows are read from the file being replaced.
+
+**Measured at build.** 40 s wall, 3.3 GB peak RSS (resident set size, the RAM actually
+held), for the whole store including MIND.
+
+| EB-NeRD split | impressions | users |
+|---|---|---|
+| train | 597,348 | 39,260 |
+| val | 435,677 | 36,402 |
+| test | 186,721 | 27,897 |
+
+Split boundaries hold strictly. Val came in at 435,677, against the ~440k assumed for
+the CI estimate above.
