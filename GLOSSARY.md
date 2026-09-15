@@ -700,3 +700,43 @@ test `behaviors.parquet` simply has no `article_ids_clicked` column. Every accur
 separate val split exists (D7). D30 represents the missing labels as an **absent column**
 rather than an empty one, so code that reaches for them raises immediately instead of
 averaging over fabricated zeros.
+
+---
+
+## Assignment 2 — Phase A1 (data scale-up)
+
+### User-level sample
+**Plain:** To survey a school, pick whole classrooms, not random pages torn out of random
+exercise books. A torn-out page arrives without the pages it depends on.
+
+**Technical:** the sample keeps or drops a *user*, and with them every impression and
+history row they own. Sampling impressions independently would keep some of a user's
+impressions while dropping others, and their history row would then describe clicks the
+sample does not contain. D33.
+
+### Modulo (hash-style) sampling
+**Plain:** "Everyone whose ticket number ends in 00–04" picks about 5% of a crowd, picks
+the same people every time, and "ends in 00–14" contains all of them plus more.
+
+**Technical:** keep a row when `user_id % 100 < p`. The `%` (modulo) operator gives the
+remainder after division, so the last two digits of the ID decide membership. It is
+deterministic (no random generator, so no version drift) and **nested** (the set for p is
+a subset of the set for any larger p). It is valid only if those last digits carry no
+information about the user, which has to be checked (χ² below) rather than assumed.
+
+### χ² (chi-squared) goodness-of-fit
+**Plain:** Roll a die 600 times. You expect about 100 of each face. χ² adds up how far
+each face's count strays from 100 and says whether the total is more than luck explains.
+
+**Technical:** χ² = Σ (observed − expected)² / expected, summed over categories. Compare
+it with the critical value for (categories − 1) degrees of freedom. Below that value,
+the counts are consistent with the expected (here uniform) distribution. For D33: 100
+residues, 99 degrees of freedom, χ² = 71.0 against a 95% critical value of ~123.2.
+
+### Confidence-interval width versus sample size
+**Plain:** Tasting one spoonful of soup tells you less than tasting ten. To halve your
+uncertainty you need four times as many spoonfuls, not twice as many.
+
+**Technical:** a CI's width shrinks with **1/√n**. Going from 17,749 to ~440,000
+impressions (×25) narrows it about ×5. This is why 15% of users (×3 the data) would only
+narrow the interval by about ×1.7 (√3) over 5%.

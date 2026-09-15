@@ -1890,9 +1890,64 @@ planning-stage choices recorded in `PROGRESS.md`: clone-forward repo layout, NRM
 reimplemented in PyTorch on CPU, EB-NeRD subsampled from `ebnerd_large`, and reduced
 targeted teaching depth.)_
 
-### D33 — EB-NeRD training scale _(next, Phase A1)_
+### D33 — EB-NeRD scale: 5% of `ebnerd_large`'s users, selected by `user_id % 100 < 5`
 
-**Status:** to be decided. User-level and seeded is forced — sample impressions instead of
-users and a sampled user's history and impressions drift out of sync. The **size** is the
-genuine fork, traded off against ingest runtime and the width of the Q3 confidence
-interval that has to exclude zero.
+**Decided 2026-09-15 (Chaitanya).**
+
+**Forced, not chosen:** the sample is user-level. Sampling impressions instead leaves a
+sampled user's history and impressions out of sync.
+
+**Measured before choosing** (`ebnerd_large`: 974,791 users; 12,063,890 train + 12,566,385
+validation impressions; train 18–25 May 2023, validation 25 May–1 Jun):
+
+| option | users | train / val impressions | est. val AUC CI half-width |
+|---|---|---|---|
+| 2% | ~19.5k | ~240k / ~250k | ±0.0016 |
+| **5% (chosen)** | **48,666** | **597,348 / 622,398** | **±0.001** |
+| 15% | ~146k | ~1.82M / ~1.89M | ±0.0006 |
+
+The CI column scales A1's measured ±0.005 on 17,749 EB-NeRD impressions by 1/√n, using
+val = the earliest 70% of validation (D8). It is an estimate. A *paired* bootstrap
+(Q3) will be narrower still, because the two systems share per-impression noise.
+
+The filtering pass costs **~50 s and ~5 GB peak whatever the size**, because reading all
+24M rows dominates. Size is only paid downstream, in features, training and bootstrap.
+
+**Why 5%:** a CI about 5× narrower than A1's, while everything stays well inside 11 GB.
+A gain too small to clear ±0.001 is too small to be worth claiming. 15% would triple the
+cost of every later step for a CI improvement that no realistic effect size needs.
+Training-row volume (impressions × K candidates, ~60M at K=100) exceeds RAM at *any* of
+these sizes, so it is subsampled separately in D36 whatever is chosen here.
+
+**Selection mechanism: `user_id % 100 < 5`, not `DataFrame.sample(seed=…)`.**
+- Deterministic across machines and Polars versions. A seeded sample's exact rows are
+  not guaranteed to stay the same across library versions.
+- **Nested:** the 5% set is exactly contained in any larger `< p` set, so growing the
+  sample later only adds users.
+- Rejected alternative: the seeded random sample. Statistically the cleanest, but neither
+  reproducible across versions nor nested.
+
+**The assumption this rests on, checked rather than trusted.** IDs must not pattern by
+their last two digits.
+- Residue counts over all 974,791 users: min 9,496, max 9,922 against an expected 9,748.
+  χ² = 71.0 on 99 degrees of freedom, below the 95% critical value of ~123.2, so
+  consistent with uniform.
+- In-sample vs out-of-sample behaviour (train; validation agrees to the same precision):
+
+  | metric | out of sample | in sample |
+  |---|---|---|
+  | impressions per user | 15.31 | 15.22 |
+  | mean inview size | 11.092 | 11.089 |
+  | SSO (single sign-on) user rate | 0.1056 | 0.1031 |
+  | desktop rate | 0.3405 | 0.3395 |
+  | median read time | 21.0 | 21.0 |
+  | clicks per impression | 1.0058 | 1.0057 |
+  | subscriber rate | 0.0674 | 0.0657 (val: 0.0654 vs 0.0657) |
+
+**Completeness check (R10).** In both splits, every sampled user with impressions has
+exactly one history row, and none is missing or duplicated (train 39,260 users ↔ 39,260
+rows; validation 39,420 ↔ 39,420). No empty histories.
+
+**Costs accepted:** EB-NeRD numbers are on a 5% user sample, not the full population. The
+leaderboard submission still scores the full 13.5M-impression testset. Only training and
+offline evaluation use the sample.
