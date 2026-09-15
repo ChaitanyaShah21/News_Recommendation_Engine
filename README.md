@@ -1,3 +1,11 @@
+> **⚠️ This README still describes Assignment 1.** This repository is now the
+> **Assignment 2** working repo (due 20 September 2026) and is mid-migration: A1's code,
+> results and 240 tests are all present and passing, but no A2 work has been done yet.
+> The README is rewritten in Phase A6. Until then, `PROGRESS.md` is the accurate status
+> document — start there.
+>
+> Assignment 1 is finished and frozen at `/home/csharp/IRE/A1`, tag `phase-5-complete`.
+
 # News Recommendation: Lexical & Semantic Retrieval at Scale
 
 **Chaitanya Shah · Systems Design** · Chaitanya Shah

@@ -1829,3 +1829,70 @@ leaderboard 0.5396, agreement to 0.0017. Full diagnosis in `PROGRESS.md`'s error
 tooling itself has been removed from the repository as unrelated to the assignment; it
 remains in git history (see the commits of 2026-08-27).
 
+
+---
+
+# Assignment 2 — Learning from Click-Logs
+
+**Everything above this line is Assignment 1** (decisions D1–D32), finished and tagged
+`phase-5-complete`. It is kept in full because A2 builds directly on it and because the
+design note draws on it: D19's availability filter, D23's tie policy, D26's slice
+definitions and D31's N=100 are all live in A2's code, not history.
+
+A2 decisions are numbered from **D33** so the two never collide.
+
+## What A2 adds, and why
+
+A1 ended on a measured gap rather than a result. BM25 and embedding retrieval contain no
+time term — a structural fact about the formulas, not a tuning failure — while 92.7%
+(MIND) / 93.5% (EB-NeRD) of real clicks are on fresh articles. Three independent routes
+reached that conclusion, and the third was the sharpest: train-window popularity predicts
+EB-NeRD clicks in the *wrong* direction (AUC 0.4647), because 86.9% of validation
+candidates were never clicked during training at all.
+
+A2's behavioural features — recency-weighted history, windowed popularity, freshness,
+session context — are the direct answer. That is why Q3's required "one principled
+improvement" is chosen from A1's own measurements before anything is measured again,
+rather than selected after the fact from whatever happened to work. A1's own Finding 5
+is the reason this matters: a slice defined by a quantity a method scores on grades that
+method tautologically, and choosing an "improvement" after seeing its result is the same
+error wearing different clothes.
+
+## Architecture of the A2 system
+
+```
+        A1, unchanged                          A2, new
+  ┌──────────────────────┐          ┌───────────────────────────┐
+  │ BM25 index           │          │ features/                 │
+  │ embeddings (384-dim) │ ───────► │   history · article       │
+  │ availability filter  │  scores  │   session · unavailable   │
+  └──────────────────────┘    as    └───────────────────────────┘
+        candidate            features            │
+        generation                               ▼
+             │                        ┌───────────────────────┐
+             └──── top-K, K=100–200 ─►│ rank/gbdt  (LambdaRank)│
+                                      │ rank/nrms  (baseline)  │
+                                      └───────────────────────┘
+                                                 │
+                                                 ▼
+                                   metrics · slices · paired bootstrap
+                                            (A1's, extended)
+```
+
+The A1 scorers do not get thrown away and replaced — **they become features** of the
+re-ranker, which is what makes Q2's "before and after re-ranking" comparison meaningful
+rather than a comparison of two unrelated systems.
+
+## Decision log — A2
+
+_(D33 onward is written as each decision is taken. Nothing decided yet beyond the four
+planning-stage choices recorded in `PROGRESS.md`: clone-forward repo layout, NRMS
+reimplemented in PyTorch on CPU, EB-NeRD subsampled from `ebnerd_large`, and reduced
+targeted teaching depth.)_
+
+### D33 — EB-NeRD training scale _(next, Phase A1)_
+
+**Status:** to be decided. User-level and seeded is forced — sample impressions instead of
+users and a sampled user's history and impressions drift out of sync. The **size** is the
+genuine fork, traded off against ingest runtime and the width of the Q3 confidence
+interval that has to exclude zero.

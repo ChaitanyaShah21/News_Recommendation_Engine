@@ -24,3 +24,15 @@ torch==2.13.0+cpu           # CPU-only build; the '+cpu' local version tag is wh
 sentence-transformers==6.0.0  # Wraps BERT/XLM-RoBERTa text -> vector, which Q3 names
                             # explicitly. Pulls transformers + tokenizers + scikit-learn.
 
+
+# --- Assignment 2 / Q2: the trained re-ranker (D36) ---
+lightgbm==4.7.0     # Gradient-boosted decision trees with a `lambdarank` objective,
+                    # which optimises the ranking directly rather than classifying each
+                    # candidate independently. Native manylinux aarch64 wheel, 3.3 MB,
+                    # no new transitive dependencies (narwhals/numpy/scipy already here).
+                    # Smoke-tested on this machine before being pinned: a planted-signal
+                    # ranking problem was recovered 200/200 against a random baseline of
+                    # 20, which also confirms the OpenMP runtime loads on aarch64.
+                    # Fallback if this wheel ever stops resolving:
+                    # sklearn.ensemble.HistGradientBoostingClassifier, already installed
+                    # via sentence-transformers - costs the lambdarank objective.
