@@ -1979,3 +1979,64 @@ held), for the whole store including MIND.
 
 Split boundaries hold strictly. Val came in at 435,677, against the ~440k assumed for
 the CI estimate above.
+
+### D34 — the Q1 feature allowlist _(to be decided, Phase A2)_
+
+**Status: evidence gathered 2026-09-16, options below, Chaitanya chooses.** The allowlist
+is an allowlist and never a denylist (system design contract): a feature is in only if it can be
+computed from facts true *strictly before* the impression is served.
+
+**What the schemas actually permit — measured, not assumed.**
+
+EB-NeRD's test behaviours, against its train behaviours:
+
+| Column | In test? | Verdict |
+|---|---|---|
+| `article_ids_clicked`, `article_id` | **absent** | the label, and the clicked article |
+| `next_read_time`, `next_scroll_percentage` | **absent** | post-impression by name |
+| `read_time`, `scroll_percentage` | **present** | **present but not available**: both are measured *after* the impression is served. Q9 ablation arm, never scored |
+| `session_id`, `device_type` | present | usable |
+| `age`, `gender`, `postcode` | present | 97.0% / 92.9% / 97.7% null in our sample (testset: 97.1 / 92.9), so nearly no signal |
+| `is_subscriber` | present, 0% null | usable |
+| `is_beyond_accuracy` | test-only | a competition flag, not a feature |
+
+`scroll_percentage` is also 70.7% null in train and 71.6% in test — it is both unavailable
+*and* mostly missing.
+
+Store fields, after the D33 rebuild:
+
+| | MIND | EB-NeRD |
+|---|---|---|
+| `published_time` | **100% null** | 0% null |
+| `history_timestamps` | **100% null** | 0% null |
+| `session_id`, `read_time` | **100% null** | 0% null |
+| `body`, `sentiment_score`, `total_pageviews` | 100% null | 0% / 0% / 86.5% null |
+| median history length | 13 | 83.5 |
+
+**Three consequences that are forced, not chosen.**
+1. **Freshness on MIND cannot come from `published_time`.** It must come from
+   `availability.first_seen_times` (A1's, already label-free and already a strict `<`).
+2. **Recency decay is not the same feature on both datasets.** EB-NeRD has real
+   timestamps; MIND has only list position. Per A1's lesson about scale-dependent
+   quantities, **the two datasets' decay features are not comparable to each other**, and
+   the design note must say so rather than tabling them side by side.
+3. **Session features are EB-NeRD-only.** MIND has no session or dwell fields at all.
+
+**Options for the allowlist's scope.**
+
+- **A — symmetric core.** Recency-weighted history (exponential decay), click count,
+  category match against history, article freshness, and popularity computed **inside the
+  train window only**. Same feature names on both datasets, with the two decay
+  implementations documented as non-comparable. Smallest, most defensible, and every
+  feature exists for both datasets.
+- **B — A plus EB-NeRD session context.** Adds within-session position and session click
+  count, which Q1.2 explicitly asks for. Richer where the data allows, asymmetric between
+  datasets, and needs the re-ranker to tolerate a feature set that differs per dataset.
+- **C — B plus demographics.** `is_subscriber` is clean (0% null); `age`/`gender`/
+  `postcode` are 93–98% null. Most of C is one usable feature and three nearly empty ones.
+
+**Quarantined in `features/unavailable.py` regardless of the choice, as the Q9 arm:**
+`read_time`, `scroll_percentage`, `next_*`, `total_pageviews`/`total_inviews`, and any
+popularity count computed over the evaluated window. A1 already priced one of these:
+future-window popularity bought **+0.0234 AUC on MIND and +0.0541 on EB-NeRD**, and
+scored 0.6657 alone on EB-NeRD — better than every honest method we have.
