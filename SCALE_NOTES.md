@@ -265,9 +265,21 @@ would not be — and it is the quantitative form of the retrieval-vs-re-ranking 
 | 256 | 727 queries/s ← *regression* |
 
 **Correction to how D14/D21 described batching.** It was framed as an optimisation; it is
-really a *memory necessity* with a modest and non-monotone throughput effect. Only ~2× at
-the optimum, and performance **degrades past ~32** because a (256 × 65,238) float32 score
-block is 67 MB and no longer fits cache. The real justification stands unchanged — a full
+really a *memory necessity* with a modest throughput effect — ~2x at the optimum on the
+day it was measured.
+
+> **Re-measured 2026-09-16 and the shape changed: 142 / 360 / 420 queries per second at
+> batch 1 / 32 / 256, i.e. monotone increasing, with no regression at 256.** The original
+> run's peak-then-regress profile (620 / 1,269 / 727) did not reproduce, and neither did
+> its absolute level: the same script on byte-identical data was ~2.4x slower overall
+> today. Absolute throughput and the location of the optimum are therefore
+> **machine-state-dependent** (frequency and core placement on a big.LITTLE ARM laptop),
+> and the cache argument below is a plausible mechanism for the original observation
+> rather than a demonstrated one. What survives both runs: batching helps, and by
+> single-digit multiples, not orders of magnitude.
+
+The original reasoning, kept for the record: performance degraded past ~32 because a
+(256 × 65,238) float32 score block is 67 MB and no longer fits cache. The real justification stands unchanged — a full
 37,777 × 65,238 matrix is 9.9 GB against 7 GB of RAM — but "batching makes it faster" was
 never measured and is only true up to a batch of about 32.
 
