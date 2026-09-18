@@ -2078,3 +2078,47 @@ established. That calibration is the project's most defensible claim.
 earlier** `impression_time`. EB-NeRD timestamps have one-second resolution, so ties are
 possible. A tie is treated as *not* earlier, which is the conservative direction: it can
 only undercount the past, never admit the present.
+
+### D35 — recency decay is multi-scale: short, medium and infinite half-lives as separate features
+
+**Decided 2026-09-18 (Chaitanya), the recommended option.**
+
+| Scale | EB-NeRD (time) | MIND (list position) |
+|---|---|---|
+| short | 1 day | 3 positions |
+| medium | 7 days (one behaviour window) | 10 positions |
+| infinite | plain mean = A1's feature | plain mean = A1's feature |
+
+The re-ranker learns how much each scale counts.
+- **No value of *h* is tuned on val,** so nothing here is fitted to the numbers it will be
+  judged on.
+- **The infinite scale is exactly A1's mean-pooled user vector (N = 100),** so Q2's
+  before-and-after comparison contains the old system as one of the new system's inputs.
+
+**Rejected:**
+- *One argued half-life.* Simplest, but "why 7?" has no measured answer.
+- *Grid search on the last day of the train week.* Principled, but ~1 h of extra work and
+  a second history snapshot to leakage-check.
+
+**Measured before choosing** (EB-NeRD val/test, one impression per user, 16.5M
+history-click pairings):
+- **0 history clicks dated after their impression.**
+- Age of the user's **newest** history click at impression time: median **5.0 days**
+  (p10 1.2, p90 7.7). The snapshot stops where the impression window starts.
+- Median click 13.6 days old, oldest 23 days.
+- MIND history length: median 13 positions, p10 3, p90 55.
+- A half-life measured in hours would therefore mean nothing on EB-NeRD.
+
+**Ages are measured relative to the user's newest click,** i.e. weight = 0.5^((t_newest − tᵢ)/h).
+- **Mathematically:** a normalised weighted average is unchanged when every weight is
+  multiplied by the same factor, so this is identical to measuring from the impression.
+- **Numerically:** it is not the same. From the impression, a 600 h age at h = 1 h
+  gives 0.5⁶⁰⁰ ≈ 10⁻¹⁸¹. A little further and every weight underflows to exactly 0,
+  giving 0/0 = NaN. Relative to the newest click, that click always gets weight 1, so
+  the sum cannot vanish.
+- **Consequence 1:** the impression time cancels out, so the decayed user vector and
+  category shares are **per user, computed once**, not per impression.
+- **Consequence 2, the cost:** that averaging cannot see *how long the user has been
+  away*. So EB-NeRD gets one extra per-impression feature, **hours since the newest
+  history click**. The negative-age guard lives on that feature and **raises** on any
+  history click at or after its impression, rather than clipping.
