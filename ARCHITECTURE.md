@@ -2051,3 +2051,30 @@ allowed.
 popularity count computed over the evaluated window. A1 already priced one of these:
 future-window popularity bought **+0.0234 AUC on MIND and +0.0541 on EB-NeRD**, and
 scored 0.6657 alone on EB-NeRD — better than every honest method we have.
+
+### D34a — EB-NeRD session features are label-free
+
+**Decided 2026-09-18 (Chaitanya), the recommended option.** Session features use only
+`session_id`, `impression_time` and `device_type`:
+- position in the session,
+- time since the session started,
+- number of impressions so far in the session,
+- device.
+
+They never use `clicked_article_ids` from other impressions.
+
+**Why.** Clicks from earlier in the same session would be legitimate in live serving,
+since they happen before the current impression. But the Codabench testset carries no
+labels, so such features cannot be computed there. Using them would need a second,
+leaderboard-only model, and would break the offline-to-leaderboard calibration that A1
+established. That calibration is the project's most defensible claim.
+
+**Rejected:**
+- *Click features as an offline-only ablation arm.* A richer Q1 story, but it is
+  drop-order item 1 on a two-day schedule.
+- *Click features in the main model.* Two models, and a broken calibration.
+
+**Boundary rule, recorded for the code.** "Earlier in the session" means a **strictly
+earlier** `impression_time`. EB-NeRD timestamps have one-second resolution, so ties are
+possible. A tie is treated as *not* earlier, which is the conservative direction: it can
+only undercount the past, never admit the present.
