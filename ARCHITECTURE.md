@@ -1980,9 +1980,13 @@ held), for the whole store including MIND.
 Split boundaries hold strictly. Val came in at 435,677, against the ~440k assumed for
 the CI estimate above.
 
-### D34 — the Q1 feature allowlist _(to be decided, Phase A2)_
+### D34 — the Q1 feature allowlist: option B, symmetric core plus EB-NeRD session context
 
-**Status: evidence gathered 2026-09-16, options below, Chaitanya chooses.** The allowlist
+**Decided 2026-09-18 (Chaitanya), option B over the recommended A**, accepting about an
+hour more work to cover Q1.2's session features directly rather than arguing their
+absence. Consequence to carry into D36: the two datasets' re-rankers see different
+feature sets, so their scores are not compared feature-for-feature. A sub-fork followed
+immediately (D34a, below). Evidence gathered 2026-09-16: The allowlist
 is an allowlist and never a denylist (system design contract): a feature is in only if it can be
 computed from facts true *strictly before* the impression is served.
 
