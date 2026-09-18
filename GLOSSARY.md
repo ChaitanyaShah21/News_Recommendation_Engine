@@ -740,3 +740,37 @@ uncertainty you need four times as many spoonfuls, not twice as many.
 **Technical:** a CI's width shrinks with **1/√n**. Going from 17,749 to ~440,000
 impressions (×25) narrows it about ×5. This is why 15% of users (×3 the data) would only
 narrow the interval by about ×1.7 (√3) over 5%.
+
+## Assignment 2 — Phase A2 (behavioural features)
+
+### Exponential decay / half-life
+**Plain:** yesterday's lunch tells you more than last month's. Older evidence counts
+less, smoothly.
+**Technical:** weight = 0.5^(age / h). *h* is the half-life, the age at which a click
+counts half. D35 uses three values of *h* as separate features and measures age from the
+user's newest click, so the weights cannot underflow to 0/0.
+
+### Exposure share
+**Plain:** what the newsagent is putting in the window right now.
+**Technical:** the fraction of impressions in [T − w, T) whose candidate list contained
+the article. Label-free, and a share rather than a count, so it survives the 5%-sample
+vs full-population gap (D34b).
+
+### Future-deletion invariance
+**Plain:** if deleting tomorrow's newspaper changes today's answer, today's answer was
+reading tomorrow's paper.
+**Technical:** delete every impression after τ and recompute. Features of impressions at
+or before τ must be bit-identical. It covers any feature, present or future, without
+listing how each could leak. It is the core of A2's Q9 test.
+
+### Label blindness
+**Plain:** shuffle the answer sheet; the questions must not change.
+**Technical:** permute the click labels across impressions. Every feature column must be
+identical, and only the label column may move.
+
+### Equivalent mutant
+**Plain:** a deliberate "bug" that turns out not to be a bug, because something else
+already guarantees the right answer.
+**Technical:** a mutation that cannot change behaviour. Example: removing the window
+clamp in `exposure_shares`, which the padded key span already covers. It is proven
+equivalent by removing *both* guards and seeing the test fail.

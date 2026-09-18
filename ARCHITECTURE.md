@@ -2177,3 +2177,30 @@ report a past fact. The builder still raises if any freshness comes out negative
 in circulation before the store's first day all look "first seen" on day one. It is also
 why EB-NeRD's freshness (true publication time) and MIND's (first appearance) are **not
 comparable** with each other.
+
+
+### The Q1 feature table, as built (Phase A2, 2026-09-18)
+
+One row per (impression, candidate), from `features/assemble.build_feature_table`.
+
+| Feature | Source | MIND | EB-NeRD |
+|---|---|---|---|
+| `cos_short`, `cos_medium`, `cos_inf` | decayed user vector · candidate (D35); `cos_inf` = A1's semantic score | ✓ | ✓ |
+| `cat_share_short/medium/inf` | recency-weighted share of the user's clicks in the candidate's category: 0 if unseen, null if no history | ✓ | ✓ |
+| `bm25` | A1's lexical score, N = 100 | ✓ | ✓ |
+| `freshness_hours` | T − min(published_time, first_seen) (D34c) | ✓ (first_seen only) | ✓ |
+| `exposure_share_1h`, `_24h` | label-free share, strictly before T (D34b) | ✓ | ✓ |
+| `hours_since_last_click` | time away; the boundary guard (D35) | — | ✓ |
+| `session_position`, `minutes_since_session_start`, `device_type` | keyed (user, session) (D34a) | — | ✓ |
+
+**Enforcement, not convention:**
+- *The allowlist is asserted.* The output columns must equal keys + label + `FEATURES`.
+- *The quarantine is asserted.* No module imports `unavailable.py`.
+- *The Q9 leakage tests* (future deletion, label blindness) run the real builder on real
+  data for both datasets. Mutation-verified against four planted forward leaks.
+
+**Two properties replaced a list of per-feature checks.** Future deletion catches *any*
+feature that peeks forward, without enumerating how each might. Label blindness catches
+any feature that reads the answer. A new feature added to the allowlist is covered
+automatically. That is why these two tests, not per-feature assertions, are the Q9
+deliverable for A2.

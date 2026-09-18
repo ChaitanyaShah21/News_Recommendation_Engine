@@ -387,3 +387,71 @@ def test_semantic_scores_do_not_change_when_the_labels_change():
         rerank.build_candidate_set(inverted, article_ids, history), users, embeddings
     )[0]
     assert np.array_equal(a, b), "semantic scores moved when only the labels changed"
+
+
+# --------------------------------------------------------------------------
+# A2 (Q1 behavioural features): the two properties every feature must satisfy.
+#
+# FUTURE DELETION: a feature for an impression at time T may use only the past,
+# so deleting every impression after tau must leave the features of every
+# impression at or before tau IDENTICAL. This catches any window, count, rank
+# or first-seen computation that peeks forward - without having to enumerate
+# how each one could.
+#
+# LABEL BLINDNESS: shuffling the click labels must leave every feature
+# identical. The label column itself is the only thing allowed to move.
+#
+# Both run the real builder on real val data for BOTH datasets. EB-NeRD alone
+# is not enough: its freshness is min(published_time, first_seen), and
+# published_time is almost always the smaller, so a bug in first_seen only shows
+# on MIND, where first_seen is the sole source (mutation L2, 2026-09-18). The quarantined future-exposure
+# feature is run through the same check and must FAIL it - proof the check can
+# see a leak at all, rather than passing because it looks at nothing.
+# --------------------------------------------------------------------------
+
+def _a2_inputs(dataset):
+    from newsrec.retrieval import semantic
+    imps = pl.read_parquet(PROCESSED / "impressions.parquet").filter(pl.col("dataset") == dataset)
+    target = imps.filter(pl.col("split") == "val").sort("timestamp").head(400)
+    hist = pl.read_parquet(PROCESSED / "history.parquet").filter(
+        (pl.col("dataset") == dataset) & pl.col("user_id").is_in(target["user_id"].implode()))
+    arts = pl.read_parquet(PROCESSED / "articles.parquet").filter(pl.col("dataset") == dataset)
+    ids, emb = semantic.load_article_embeddings(PROCESSED / "embeddings.parquet", dataset=dataset)
+    return imps, target, hist, arts, ids, emb
+
+
+@requires_store
+@pytest.mark.parametrize("dataset", ["mind", "ebnerd"])
+def test_a2_features_are_unchanged_when_the_future_is_deleted(dataset):
+    from newsrec.features import assemble
+    from newsrec.features.unavailable import unavailable_features
+    imps, target, hist, arts, ids, emb = _a2_inputs(dataset)
+    tau = target["timestamp"].sort()[target.height // 2]
+    early = target.filter(pl.col("timestamp") <= tau)
+    past_only = imps.filter(pl.col("timestamp") <= tau)
+
+    full = assemble.build_feature_table(dataset, early, imps, hist, arts, ids, emb)
+    trunc = assemble.build_feature_table(dataset, early, past_only, hist, arts, ids, emb)
+    assert full.height > 0 and full.equals(trunc), "a feature changed when the future was removed"
+
+    # Teeth: the quarantined future feature must be caught by the same check.
+    # (On MIND read_time/scroll_percentage are all-null placeholders from
+    # ingestion, so the future exposure share is the part that has teeth there.)
+    leak_full = unavailable_features(full, early, imps, arts)["future_exposure_share_24h"]
+    leak_trunc = unavailable_features(trunc, early, past_only, arts)["future_exposure_share_24h"]
+    assert not leak_full.equals(leak_trunc), "the check cannot see a known leak"
+
+
+@requires_store
+@pytest.mark.parametrize("dataset", ["mind", "ebnerd"])
+def test_a2_features_are_blind_to_click_labels(dataset):
+    from newsrec.features import assemble
+    imps, target, hist, arts, ids, emb = _a2_inputs(dataset)
+    shuffled = target.with_columns(
+        pl.col("clicked_article_ids").shuffle(seed=7).alias("clicked_article_ids"))
+    imps_shuffled = imps.update(shuffled.select("impression_id", "clicked_article_ids"),
+                                on="impression_id")
+    a = assemble.build_feature_table(dataset, target, imps, hist, arts, ids, emb)
+    b = assemble.build_feature_table(dataset, shuffled, imps_shuffled, hist, arts, ids, emb)
+    assert not a["clicked"].equals(b["clicked"]), "the shuffle did not change the labels"
+    assert a.drop("clicked").equals(b.drop("clicked"))
