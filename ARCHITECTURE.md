@@ -2013,6 +2013,13 @@ Store fields, after the D33 rebuild:
 | `body`, `sentiment_score`, `total_pageviews` | 100% null | 0% / 0% / 86.5% null |
 | median history length | 13 | 83.5 |
 
+**The catalogue contains the future** (checked 2026-09-18). `ebnerd_large` and the
+testset share one 125,541-article catalogue, which is why they were frame-equal. It
+covers publication dates up to 2023-07-11, and 1,069 articles appear after the
+validation week has ended. Any feature derived from the catalogue *as a whole* leaks.
+Only per-article fields, evaluated relative to the impression's own timestamp, are
+allowed.
+
 **Three consequences that are forced, not chosen.**
 1. **Freshness on MIND cannot come from `published_time`.** It must come from
    `availability.first_seen_times` (A1's, already label-free and already a strict `<`).
