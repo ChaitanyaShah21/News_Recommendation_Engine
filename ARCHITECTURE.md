@@ -2122,3 +2122,58 @@ history-click pairings):
   away*. So EB-NeRD gets one extra per-impression feature, **hours since the newest
   history click**. The negative-age guard lives on that feature and **raises** on any
   history click at or after its impression, rather than clipping.
+
+### D34b — popularity is a label-free exposure share, over trailing 1 h and 24 h windows
+
+**Decided 2026-09-18 (Chaitanya), the recommended option.** For a candidate article *a*
+in an impression at time *T*:
+
+    exposure_share_w = (# impressions in [T − w, T) that showed a) / (# impressions in [T − w, T))
+
+with w ∈ {1 h, 24 h}. Counted over every split of the same dataset. Each impression counts
+an article at most once.
+
+**Why not click counts?**
+1. The Codabench testset has no labels, so click popularity could only be a snapshot
+   frozen at the end of training. A1 measured that snapshot ranking EB-NeRD in the wrong
+   direction (AUC 0.4647; 86.9% of val candidates never clicked in train).
+2. Train-window click counts used as a feature on *training* rows include those rows'
+   own labels.
+3. **Scale** (the R10 finding). The store is a 5% user sample and the leaderboard is the
+   full population, so any raw count would be ~20× larger at submission than in
+   training. A share is scale-free.
+
+**Boundary.** "Before *T*" is strict: same-second impressions are excluded (D34a's tie
+rule). The first impressions of a dataset have an empty window, and their share is null,
+not zero: "no data" is different from "never shown".
+
+**Rejected:**
+- *Adding a frozen click snapshot.* Measured wrong-direction, needs a self-label guard,
+  and costs time we don't have.
+- *The snapshot alone.* All of the above, with no current signal at all.
+
+### D34c — freshness is measured from the earliest evidence of an article's existence
+
+**Decided 2026-09-18 (Chaitanya), the recommended option.**
+`freshness_hours = T − min(published_time, first_seen)` on EB-NeRD, and `T − first_seen`
+on MIND, whose `published_time` is 100% null. `first_seen` is the article's earliest
+appearance in any impression's candidate list: A1's label-free `first_seen_times`.
+
+**Measured:** 1,810 of 14,088,920 EB-NeRD candidate rows (0.013%, 11 articles) were
+shown *before* their `published_time`. Median 21 min earlier, worst 43 h. The likely
+reason is that `published_time` records a republication. That means the raw field carries
+a future fact ("this article will be republished") into every earlier impression.
+
+**Why computing `first_seen` over all splits does not leak.** Freshness is only computed
+for an article that is a candidate *in this impression*, at time *T*. Its earliest
+appearance is therefore at or before *T* by construction, so `first_seen` can only
+report a past fact. The builder still raises if any freshness comes out negative.
+
+**Rejected:**
+- *Clip at 0.* The 11 articles would keep a republication time from the future.
+- *Null those rows.* Discards evidence that the article was visibly live.
+
+**Caveat for the design note.** On MIND, `first_seen` is left-censored: articles already
+in circulation before the store's first day all look "first seen" on day one. It is also
+why EB-NeRD's freshness (true publication time) and MIND's (first appearance) are **not
+comparable** with each other.
