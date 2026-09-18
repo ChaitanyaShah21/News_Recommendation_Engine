@@ -294,11 +294,13 @@ right about the dataset where it says the signal is weakest.
 | Articles in store | 65,238 MIND + 125,541 EB-NeRD | same |
 | Store rebuild | 40 s, 3.3 GB peak RSS | `/usr/bin/time` on `build_pipeline.py` |
 | Embeddings assembled (not recomputed) | 7 s vs ~18 min | `assemble_embeddings.py` |
-| Tests | 289 passing | `pytest -q` |
+| Tests | 297 passing | `pytest -q` |
 | EB-NeRD history clicks at or after their impression | **0** (train, val and test) | `test_no_real_ebnerd_history_click_postdates_its_impression` |
 | Age of the newest history click at impression time | median 5.0 days (p10 1.2, p90 7.7) | D35 measurement, one impression per user, 16.5M pairings |
 | EB-NeRD candidates shown before their `published_time` | 1,810 of 14,088,920 (0.013%), 11 articles; median 21 min, max 43 h | D34c measurement |
 | Exposure windows (D34b) | 1 h and 24 h, strictly before T, as a share | `features/article.py` |
+| EB-NeRD session IDs shared by >1 user | 1,032; hence keyed by (user, session) | A2.3 measurement |
+| EB-NeRD session length, keyed properly | median 1 impression (p99 8, max 32); longest 29 min | A2.3 measurement |
 | Decay half-lives (D35) | EB-NeRD 1 d / 7 d / ∞; MIND 3 / 10 / ∞ positions | `features/history.py`, `HALF_LIVES` |
 | Estimated val AUC CI half-width at this n | ±0.001 **(estimate)** | A1's ±0.005 on 17,749, scaled 1/√n |
 
