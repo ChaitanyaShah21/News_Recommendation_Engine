@@ -214,7 +214,46 @@ columns exist and three are not window-dependent, is where that price is measura
 
 ## 8. Where it breaks at 10×
 
-<!-- TBD: SCALE_NOTES.md + the leaderboard run's measured numbers -->
+The honest basis for this section is that we **already ran the largest thing we have**:
+205,925,868 candidate rows (EB-NeRD) and 93,115,001 (MIND) were featurised and scored
+locally, in **155 min** and **26 min**, at a 10.6 GB peak on an 11 GB machine. So what
+follows extrapolates from a measured run rather than from an estimate.
+
+**Three things that made the current scale run, each a lesson about the next one.**
+
+1. *Never materialise the exploded candidate list as strings.* 206M (impression, article)
+   pairs cost ~10 GB as Polars strings and 1.4 GB as one sorted `int64` key per pair;
+   `searchsorted` over that array answers the popularity question in 40 ms per 59k rows.
+2. *A deep slice of a lazy frame is not free once a row index is attached.* One 5,000-row
+   chunk at offset 5M cost **297 s**, because the row index forces a scan of everything
+   before it. Writing the prepared frame to Parquet first made it instant — the same class
+   of error as assuming an operation is cheap because a *similar* one measured cheap.
+3. *Partition by user, not by file order.* Per-user work (three decayed profiles, category
+   shares, the BM25 query) costs ~3.4 ms and was being repeated in every chunk a user
+   appeared in. Hashing users into 64 groups pays it once: 2.7 min per 215k-impression
+   group.
+
+**At 10× (135M impressions, ~2 G candidate rows), in the order things break:**
+
+- **The exposure index, first.** 2 G `int64` keys is **16 GB** — it stops fitting. It must
+  become either time-bucketed shards or a count keyed by (article, hour) instead of by
+  impression, which is a bounded-size structure: 125k articles × 168 hours is 21M cells,
+  not 2 G.
+- **Per-user feature building, second.** It is linear and precomputed nowhere: ~8 M users ×
+  3.4 ms ≈ **7.5 h** of profile building alone. A production system would move it to a
+  nightly batch, because a user profile is a function of history, not of the request.
+- **Wall clock, third.** ~26 h on this machine, which is past any deadline — but the work
+  is embarrassingly parallel by user group, so it is a horizontal-scaling problem rather
+  than an algorithmic one. Nothing in the pipeline requires a global shuffle.
+- **What does *not* break:** the model (322 trees, 1.6 MB), the embeddings (190 MB), and
+  BM25 (a fixed sparse matrix). Stage 1 and stage 2 both stay within a single machine's
+  memory at 10×; it is the *log-derived* features that grow with traffic.
+
+**One caveat about numbers taken under pressure.** Profiling one leaderboard chunk showed
+`searchsorted` at 0.7 s per call; the same call on a quiet machine takes **10 ms**. The
+difference was memory pressure, not the array. A1's error log already contains a
+conclusion that had to be withdrawn for exactly this reason, which is why the latency
+figures in §5 were taken with nothing else running.
 
 ## 9. Reproducing, and what is ours
 
