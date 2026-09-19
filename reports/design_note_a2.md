@@ -148,11 +148,69 @@ selecting a claim after seeing its result is a tautology in disguise.
 
 ## 6. Q5 — extended evaluation, sliced
 
-<!-- TBD: table from reports/extended_eval_*_test_k10.csv, both datasets -->
+All seven metrics, over the supplied-inview pipeline on the local test split, with
+1,000-resample percentile CIs. Slices are D26's: cold = history ≤ 5 articles; head/tail by
+exposure, where an impression is head only if *every* clicked article is in the head set
+(2,922 MIND / 243 EB-NeRD impressions are mixed and counted in neither, rather than
+silently assigned).
 
-## 7. Q9 — anti-gaming: the price of a feature that is not available at serving time
+| | MIND: semantic (A1) → LambdaRank | EB-NeRD: semantic (A1) → LambdaRank |
+|---|---|---|
+| all | 0.6097 → 0.6144, paired **+0.0048 [0.0012, 0.0080]** | 0.5457 → 0.7428, **+0.1971 [0.1953, 0.1989]** |
+| cold (n = 3,904 / 680) | 0.5642 → 0.5529, **−0.0113** | 0.5538 → 0.7348, **+0.1810** |
+| warm (n = 18,043 / 186,041) | 0.6195 → 0.6277, **+0.0083** | 0.5457 → 0.7428, **+0.1971** |
+| head-exposure (n = 13,108 / 98,719) | 0.5955 → 0.5828, **−0.0127 [−0.0176, −0.0079]** | 0.5565 → 0.7745, **+0.2179** |
+| tail-exposure (n = 5,917 / 87,759) | 0.6319 → 0.6671, **+0.0353** | 0.5334 → 0.7076, **+0.1741** |
+| diversity (category, K=10) | 0.8166 → 0.7352 | 0.7993 → 0.8029 |
+| novelty (bits) | 17.34 → 17.69 | 18.87 → 19.06 |
+| coverage | 0.0283 → 0.0318 | 0.0260 → 0.0247 |
 
-<!-- TBD: reports/q9_serving_ablation_*_test.csv -->
+Three readings we would defend:
+
+1. **On EB-NeRD the gain is not an artefact of one population** — it holds in every slice,
+   largest on head-exposure (+0.218) and smallest on tail (+0.174). A model leaning on
+   popularity should be expected to do *better* where articles are widely shown, and it
+   does, which is a consistency check rather than a surprise.
+2. **On MIND the aggregate +0.0048 hides two sign flips, which is exactly what slicing is
+   for.** The model is *worse* on cold users (−0.0113) and *worse* on head-exposure
+   impressions (−0.0127 [−0.0176, −0.0079]), and better on warm (+0.0083) and much better
+   on tail-exposure (+0.0353). The mechanism is measurable rather than guessed: on MIND a
+   candidate's own exposure share predicts clicks in the **inverse** direction within its
+   own rack (AUC 0.476 taken positively, 0.524 inverted), so the model learns to
+   down-weight heavily-shown articles. That helps where the clicked article is obscure and
+   hurts where it is the popular one. A cold user additionally has no decayed profile at
+   all, so nothing compensates. Together these argue for a cold-start fallback and for
+   rack-relative rather than absolute popularity features — the improvement we would make
+   next, and the one §4's GBDT property predicts.
+3. **The re-ranker is not free on diversity.** On MIND it trades category diversity
+   (0.817 → 0.735) for novelty and coverage; on EB-NeRD it costs coverage
+   (0.0260 → 0.0247) while raising novelty. Coverage is reported **without** a CI (D27):
+   the bootstrap is biased downward for a union statistic, and the raw spread is carried in
+   the CSV under its own column names instead.
+
+## 7. Q9 — anti-gaming: leakage test, and the price of a serving-time feature
+
+**The test (Q9.2).** Two properties, not a checklist: future deletion and label
+blindness (§2), mutation-verified against four planted leaks. A quarantined future feature
+*fails* the same check, which is how we know the check can see a leak at all.
+
+**The ablation (Q9.1).** The shipped model is trained twice: on the allowlist, and on the
+allowlist plus everything in `features/unavailable.py` (`read_time`,
+`scroll_percentage`, `total_pageviews`, `future_exposure_share_24h`).
+
+| MIND (test, 21,947) | AUC | MRR |
+|---|---|---|
+| honest — **this is what ships** | 0.6144 [0.6104, 0.6185] | 0.3191 |
+| + serving-unavailable | 0.5994 [0.5952, 0.6033] | 0.3014 |
+| paired difference | **−0.0150 [−0.0181, −0.0118]** | −0.0177 |
+
+**Cheating made MIND worse, and the reason is mechanical, not moral.** MIND ships no dwell
+or pageview fields, so the only quarantined column with data is the forward exposure
+window — and MIND's log ends 2019-11-15 23:58, so that window is 37–138 h wide in training
+but only 5.7–11.4 h at test time, inflating the feature's mean 3.2× (0.075 → 0.241). The
+leaky model leaned on it (118 trees against 18; 15.7% of its gain) and was then handed a
+differently-distributed input. **So MIND cannot price the leak**; EB-NeRD, where all four
+columns exist and three are not window-dependent, is where that price is measurable.
 
 ## 8. Where it breaks at 10×
 

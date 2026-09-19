@@ -2400,3 +2400,35 @@ fully-trained NRMS would reach, and the comparison against the LambdaRank model 
 everything) is therefore **not** a fair architecture comparison. What it *does* support is
 Q3's actual question: all four arms see the same data, so the ablation isolates the time
 term, and the paired CI is computed over identically-trained arms.
+
+### Q9 measurement, A2: the price of cheating is only measurable where the future exists
+**Date:** 2026-09-19 · measured, not decided
+
+`run_q9_ablation.py` trains the shipped model twice: on D34's allowlist, and on the
+allowlist plus everything quarantined in `features/unavailable.py`.
+
+**MIND (test, 21,947 impressions):** honest AUC **0.6144** [0.6104, 0.6185]; with the
+serving-unavailable columns **0.5994** [0.5952, 0.6033]; paired difference
+**−0.0150** [−0.0181, −0.0118]. **Cheating made it worse, and the reason is mechanical
+rather than moral.**
+
+Of the four quarantined columns, only `future_exposure_share_24h` has any data on MIND —
+the dataset ships no `read_time`, no `scroll_percentage` and no `total_pageviews`. And
+that one column does not mean the same thing in training as at test time, because the log
+ends 2019-11-15 23:58:
+
+| MIND rows | hours of future actually inside the log | mean `future_exposure_share_24h` |
+|---|---|---|
+| train | p10 37 h, p50 85 h, p90 138 h | 0.075 |
+| test | **p10 5.7 h, p50 9.8 h, p90 11.4 h** | **0.241** |
+
+The forward window is truncated at test time, so its denominator shrinks and the share
+inflates 3.2×. The leaky model leaned on it (118 trees against the honest model's 18, and
+15.7% of its gain) and was then handed a differently-distributed feature at test time.
+
+**What this does and does not license us to say.** It does *not* say "serving-time leaks
+are harmless": it says a leak whose own window is clipped by the end of the dataset is
+unmeasurable here, and that training on it cost accuracy. The number to quote for the real
+price of cheating is EB-NeRD's, where `read_time`, `scroll_percentage` and
+`total_pageviews` are present and are not window-dependent. Reporting the MIND figure
+without this paragraph would be the more flattering and less honest choice.
