@@ -307,6 +307,26 @@ right about the dataset where it says the signal is weakest.
 | Decay half-lives (D35) | EB-NeRD 1 d / 7 d / ∞; MIND 3 / 10 / ∞ positions | `features/history.py`, `HALF_LIVES` |
 | Estimated val AUC CI half-width at this n | ±0.001 **(estimate)** | A1's ±0.005 on 17,749, scaled 1/√n |
 
+
+### I.2 Phase A3: the trained re-ranker (2026-09-19, local test split, 1,000-resample CIs)
+
+| Quantity | MIND | EB-NeRD | Where from |
+|---|---|---|---|
+| Feature-table rows (train / val / test) | 5,843,444 / 1,895,867 / 845,131 | 6,623,716 / 5,212,769 / 2,252,435 | `build_feature_tables.py` |
+| Feature build time, all three splits | 3 min 11 s, 4.5 GB peak | 10 min 0 s, 7.6 GB peak | `/usr/bin/time` on the same |
+| Trees chosen by early stopping | 18 (val nDCG@10 flat from ~20 to 300 trees) | see model file | `run_reranker.py` |
+| AUC, A1 semantic ("before") | 0.6097 [0.6057, 0.6133] | 0.5457 [0.5443, 0.5472] | `reports/rerank_*_test.csv` |
+| AUC, LambdaRank ("after") | 0.6144 [0.6104, 0.6185] | **0.7428 [0.7415, 0.7441]** | same |
+| Paired AUC gain over A1 semantic | +0.0048 [0.0012, 0.0080] | +0.1971 [0.1953, 0.1989] | same, `paired_bootstrap_diff` |
+| Paired MRR gain over A1 semantic | −0.0009 (CI spans 0) | +0.1780 [0.1761, …] | same |
+| Top-3 features by gain | cos_inf 27%, freshness 20%, exposure_1h 16% | freshness 38%, exposure_1h 21%, exposure_24h 13% | `reports/rerank_importance_*.csv` |
+| MIND exposures lost to reused impression ids (bug, fixed) | 11,896 of 8,584,442 (0.14%) | 0 (ids unique) | regression check, 2026-09-19 |
+| Leaderboard candidate rows | 93,115,001 | 205,925,868 | `load_submission_behaviors`, streamed |
+| Leaderboard context | — | 170,014,788 exposures over 14,556,456 impressions, built in 137 s | `run_submission_lgbm.py` log |
+| Leaderboard featurise + score rate | — | 2.7 min per 215k-impression user group; 10.6 GB peak RSS | smoke run, 1 of 64 groups |
+| `is_beyond_accuracy` rows | — | 200,000, all impression id 0, one second, one identical 250-article list | D38 measurement |
+| `hours_since_last_click`, p10 / p50 / p90 | — | local test 132 / 153 / 182 h vs leaderboard 24 / 98 / 167 h | feature-sample comparison, D38 |
+
 ---
 
 ## J. How to re-measure

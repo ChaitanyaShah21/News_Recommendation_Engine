@@ -2304,3 +2304,55 @@ two different impressions that shared an id and showed the same article counted 
 That lost **11,896 of 8,584,442 exposures (0.14%), on MIND only**. The new index
 de-duplicates within each impression's own list, which is correct. The MIND tables were
 rebuilt and the model retrained. A test pins the case.
+
+**Found while checking the leaderboard features (D38):** every leaderboard feature's
+distribution matches the local test table's closely (p10/p50/p90), **except
+`hours_since_last_click`**. It runs 24–167 h on the leaderboard, as on train and val,
+but 132–182 h on the local test split. The reason: D7 carved the local test split from
+the *tail* of the validation week, yet it shares the validation week's history snapshot
+(Landmine 5), so every local-test user has been away at least ~5 days by construction.
+**The leaderboard is in-distribution for this feature; our local test split is not.** The
+local test numbers therefore slightly understate the model on this one input. Say so in
+the design note rather than let it look like a leaderboard surprise.
+
+---
+
+## Phase A4 — Q3, baseline reproduced, then beaten — OPTIONS, awaiting Chaitanya
+
+Nothing below has been run. `rank/nrms.py` and `scripts/run_nrms.py` are written and
+tested (5 tests: planted-preference learning, the empty-history NaN trap, history
+alignment, the time term starting exactly at the baseline, same-impression negatives)
+so that option A can start the moment it is chosen.
+
+### D39 — what "reproduce the official baseline" means here
+- **A. NRMS over our frozen 384-dim sentence embeddings (recommended).** The paper's
+  user encoder (multi-head self-attention, then additive attention), its objective
+  (1 click + 4 same-impression negatives, softmax cross-entropy) and its dot-product
+  scoring. The *news* encoder is a learned projection of the D20 embedding instead of
+  word-level attention over GloVe title tokens.
+  - For: minutes per epoch on this CPU, both datasets feasible, and the embeddings are
+    already verified.
+  - Against: it is a documented deviation from the official NRMS, which a grader
+    might call a variant rather than a reproduction.
+- **B. Faithful NRMS, word-level, MIND only.**
+  - For: the closest to the official baseline.
+  - Against: tokenisation, a vocabulary and GloVe (another download), and hours of
+    CPU training per run. Four ablation arms will not fit before the deadline.
+- **C. Call the Q2 LambdaRank model the baseline.**
+  - For: it is already done.
+  - Against: it is our own model, not "the official/starter baseline" the spec names.
+    Fails Q3.1 as written.
+
+### D40 — the one principled change
+- **A. A time term in NRMS's click score (recommended):** a small MLP over
+  (log-freshness, exposure share 1 h / 24 h) added to u·c, zero-initialised so training
+  *starts* at the baseline. Principled because it is A1's central measured finding
+  (92.7% / 93.5% of clicks on fresh articles; nothing in NRMS can see time), and the Q2
+  model's importances independently confirm it (freshness + exposure = 73% of gain on
+  EB-NeRD). It was chosen *before* any NRMS result exists, which is what keeps it clear of
+  A1's Finding 5.
+  - Ablation arms: baseline / +freshness / +exposure / +both. The paired CI compares
+    +both against the baseline.
+- **B. Within-impression normalisation of the GBDT's features.** Motivated by D36's
+  measured "trees read absolute values" property. It improves our own model rather than
+  the official baseline, so it pairs only with D39-C.

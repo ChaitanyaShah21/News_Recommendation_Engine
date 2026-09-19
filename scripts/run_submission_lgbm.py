@@ -163,6 +163,11 @@ def main() -> int:
         pieces = []
         for (is_ba,), sub in part.group_by("is_beyond_accuracy"):
             ft = assemble.build_rows(gctx, sub, hist, strict=not is_ba)
+            sample = SUB / f"leaderboard_features_sample_{ds}.parquet"
+            if not is_ba and not sample.exists():
+                # Kept to compare against the local test table's distributions:
+                # a feature silently null or shifted here would not error.
+                ft.sample(min(ft.height, 300_000), seed=0).write_parquet(sample)
             s = booster.predict(feature_matrix(ft, feats))
             pieces.append(ft.select("impression_id").with_columns(pl.Series("score", s))
                           .group_by("impression_id", maintain_order=True).agg("score"))
