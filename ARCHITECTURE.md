@@ -2371,3 +2371,32 @@ so that option A can start the moment it is chosen.
 - **B. Within-impression normalisation of the GBDT's features.** Motivated by D36's
   measured "trees read absolute values" property. It improves our own model rather than
   the official baseline, so it pairs only with D39-C.
+
+### D41 — NRMS trains on a seeded 60,000-impression subsample per arm
+**Date:** 2026-09-19 · **Decision:** Selected based on empirical benchmark evaluation.
+"scoped-down path" rule (R8). Chaitanya had asked for both datasets to be kept.
+
+**Measured first, then decided.** A full MIND epoch (156,965 impressions → ~236k
+click-plus-negatives samples, batch 256) ran at under 0.3 batches/s on this CPU, i.e.
+**~55 min per epoch**. Four ablation arms × 3 epochs is ~11 h for MIND alone, and EB-NeRD
+is ~2.5× larger. That does not fit a night that also has to produce Q4, Q5 and Q9.
+
+**Chosen:** each arm trains on a seeded sample of **60,000 train impressions**
+(`--train-impressions`), keeping every architectural choice from D39 — 50 history
+articles, 16 heads × 16 dims, 4 negatives per click, the paper's objective. Validation
+(30,000 sampled impressions) still selects the epoch, and the **test split is never
+subsampled**, so the reported numbers and the paired CI cover all 21,947 / 186,721 test
+impressions.
+
+**Alternatives rejected:**
+- *Shrink the model* (fewer history articles, 128 dims). Cheaper still, but it changes
+  NRMS into a different architecture, which is the one thing Q3.1 asks us not to do.
+- *Fewer arms.* The ablation is what Q3.3 grades; it is the last thing to cut.
+- *Fewer epochs.* Already only 3, and epoch selection needs more than one.
+
+**What this costs, stated rather than buried:** the baseline is trained on ~38% of MIND's
+and ~10% of EB-NeRD's available impressions, so absolute NRMS numbers are lower than a
+fully-trained NRMS would reach, and the comparison against the LambdaRank model (trained on
+everything) is therefore **not** a fair architecture comparison. What it *does* support is
+Q3's actual question: all four arms see the same data, so the ablation isolates the time
+term, and the paired CI is computed over identically-trained arms.
