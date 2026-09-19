@@ -36,5 +36,12 @@ venv/
 !reports/figures/*.png
 
 
+# ---- Codabench worker tooling: infrastructure, restored from history 2026-09-19 ----
+# Removed from the deliverable in A1 (commit f716d4b) because it is not pipeline
+# work. Restored into the working tree to re-run the EB-NeRD scoring worker, and
+# ignored so the deliverable stays as A1 left it. `.env` holds live queue
+# credentials and must never be committed.
+codabench/
+
 # ---- Design-note build intermediate (the PDF itself is a deliverable, keep it) ----
 reports/design_note.html

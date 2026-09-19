@@ -1,0 +1,4 @@
+dataset,system,k,n_impressions,n_with_a_hit,recall@100,AUC,AUC_lo,AUC_hi,MRR,MRR_lo,MRR_hi,nDCG@5,nDCG@5_lo,nDCG@5_hi,nDCG@10,nDCG@10_lo,nDCG@10_hi
+ebnerd,retrieval order (A1 semantic),100,186721,4704,0.0251,0.5083,0.5001,0.5166,0.0521,0.0488,0.0553,0.029,0.025,0.0329,0.0458,0.0414,0.0501
+ebnerd,lgbm re-ranked,100,186721,4704,0.0251,0.9675,0.9641,0.9708,0.5668,0.5584,0.5763,0.6541,0.6463,0.662,0.665,0.6579,0.6726
+ebnerd,lgbm - retrieval order,100,186721,4704,,0.4592,0.4505,0.4679,0.5147,0.5048,0.5244,0.6251,0.6161,0.6339,0.6192,0.6103,0.6276
