@@ -204,6 +204,26 @@ allowlist plus everything in `features/unavailable.py` (`read_time`,
 | + serving-unavailable | 0.5994 [0.5952, 0.6033] | 0.3014 |
 | paired difference | **−0.0150 [−0.0181, −0.0118]** | −0.0177 |
 
+| EB-NeRD (test, 186,721) | AUC | MRR |
+|---|---|---|
+| honest — **this is what ships, and what both leaderboard files came from** | 0.7428 [0.7415, 0.7441] | 0.5219 |
+| + serving-unavailable | 0.7590 [0.7578, 0.7602] | 0.5487 |
+| paired difference | **+0.0162 [0.0153, 0.0172]** | +0.0269 |
+
+**The price of cheating on EB-NeRD is +0.016 AUC: real, but under a tenth of what the
+honest behavioural features bought (+0.197).** The two columns that carry it are
+`total_pageviews` (17% of the leaky model's gain) and `future_exposure_share_24h` (16%).
+
+**`read_time` and `scroll_percentage` — the two features the schema most invites you to
+misuse — turn out to be inert here, and the reason is structural.** EB-NeRD records dwell
+and scroll **per impression**, not per candidate, so they take the same value for every
+candidate in a rack. A ranking objective only ever compares candidates *within* a rack, so
+a rack-constant feature cannot change any ordering; neither reaches the leaky model's top
+five. That is worth stating because it cuts against the intuition that the most obviously
+post-hoc field is the most dangerous one: **the dangerous leak is the one that varies per
+candidate**, which is why `total_pageviews` (a per-article whole-dataset aggregate) is the
+biggest offender in this table.
+
 **Cheating made MIND worse, and the reason is mechanical, not moral.** MIND ships no dwell
 or pageview fields, so the only quarantined column with data is the forward exposure
 window — and MIND's log ends 2019-11-15 23:58, so that window is 37–138 h wide in training
