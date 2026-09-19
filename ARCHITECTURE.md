@@ -2216,7 +2216,8 @@ recommendation, **marked PROVISIONAL, and written up so it can be reversed.** Ea
 cheap to undo because the feature tables are cached. None of them counts as agreed until
 he confirms it (R6).
 
-### D36 — Train on the train split, early-stop on val, report on the local test split — PROVISIONAL
+### D36 — Train on the train split, early-stop on val, report on the local test split
+**Decided by:** Chaitanya, 2026-09-19. The recommendation was taken provisionally while he was away, then explained to him option by option and accepted
 **Chosen:** LightGBM `lambdarank` (the Option A GBDT that Q2 names), fitted on
 `features/{ds}_train.parquet` (the supplied inview lists, one row per candidate, label =
 clicked). Training stops when the validation split's nDCG@10 has not improved for 50
@@ -2250,7 +2251,8 @@ user is). **Within-impression normalisation (rank or z-score within the rack) is
 therefore a principled candidate for Q3's "one change",** motivated by a measured
 property of the model rather than a sweep.
 
-### D37 — Two candidate regimes, one model — PROVISIONAL
+### D37 — Two candidate regimes, one model
+**Decided by:** Chaitanya, 2026-09-19. The recommendation was taken provisionally while he was away, then explained to him option by option and accepted
 - **Regime 1, the supplied inview list.** This is what both leaderboards grade and what
   the model is trained on.
 - **Regime 2, retrieved top-K.** A1's semantic generator, unchanged (N = 10 query D12,
@@ -2268,7 +2270,8 @@ that subset would be small, and its size is reported next to the metrics.
 - **What this costs:** the model is applied outside its training distribution. That is
   the honest reading of "use A1's generator, then re-rank", and it is reported as such.
 
-### D38 — The leaderboard's "past": store + leaderboard impressions; synthetic rows kept out — PROVISIONAL
+### D38 — The leaderboard's "past": store + leaderboard impressions; synthetic rows kept out
+**Decided by:** Chaitanya, 2026-09-19. The recommendation was taken provisionally while he was away, then explained to him option by option and accepted
 Featurising the Codabench test sets (93 M MIND / 206 M EB-NeRD candidate rows) needs a
 label-free "log of what was shown before T" for exposure, first-seen and sessions.
 **Chosen:** the local store (every split) plus the leaderboard impressions themselves.
@@ -2317,7 +2320,19 @@ the design note rather than let it look like a leaderboard surprise.
 
 ---
 
-## Phase A4 — Q3, baseline reproduced, then beaten — OPTIONS, awaiting Chaitanya
+## Phase A4 — Q3, baseline reproduced, then beaten
+
+**Decided 2026-09-19 by Chaitanya:**
+- **D39 = a hybrid of A and B.** The 4-arm ablation and the paired CI run on option A
+  (NRMS over frozen embeddings), which secures Q3.
+- **Faithful word-level NRMS on MIND** then runs overnight as a 2-arm fidelity check
+  (baseline vs +time term). It is a bonus: if it does not finish, nothing is lost.
+  - Its cost was estimated at ~30–60 min per epoch, ~2–4 h per model, from rough
+    arithmetic (~1.5 GFLOP per example × 236k examples, against ~100–200 GFLOP/s).
+    To be replaced by a 200-step timing before launch.
+- **D40 = A** (the time term).
+
+The options as they were presented:
 
 Nothing below has been run. `rank/nrms.py` and `scripts/run_nrms.py` are written and
 tested (5 tests: planted-preference learning, the empty-history NaN trap, history
