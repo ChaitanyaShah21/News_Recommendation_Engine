@@ -341,3 +341,51 @@ work to the wrong side of a boundary crossed 50,000 times".
 **Reuse beat recompute by 150×.** Assembling store embeddings from the Phase-5 testset
 vectors took 7 s, against ~18 min to re-embed 125,541 articles on CPU. It only works
 because the two article files were *checked* frame-equal first.
+
+## Phase A3 — measured at leaderboard scale (2026-09-19)
+
+**The scale that actually had to run: 205,925,868 candidate rows (EB-NeRD) and 93,115,001
+(MIND).** Both leaderboard files were produced locally on the 11 GB machine.
+
+| Quantity | EB-NeRD | MIND |
+|---|---|---|
+| Impressions / candidate rows | 13,536,710 / 205.9M | 2,370,727 / 93.1M |
+| Wall clock, featurise + score + write | **155 min** | **26 min** |
+| Peak RSS | 10.6 GB (of 11 GB + 16 GB swap) | lower, same code |
+| Context built once | 137 s — 170,014,788 exposures over 14,556,456 impressions | — |
+
+**Three things that decided whether this ran at all.**
+
+1. **Never materialise the exploded candidate list as strings.** 206M (impression,
+   article) pairs as Polars strings is ~10 GB; the same information as one sorted int64
+   key per pair is 1.4 GB. `ExposureIndex` stores the key array, and `searchsorted` over
+   it answers "how many impressions in [T−w, T) showed this article" in 40 ms per 59k
+   rows.
+2. **A deep slice of a lazy frame is not free once a row index is attached.** Slicing the
+   raw leaderboard frame at offset 5M cost **297 s for one 5,000-row chunk**, because the
+   row index forces the scan to walk everything before it. Writing the prepared frame to
+   Parquet first and slicing *that* made the same operation instant. This is the same
+   class of error as A1's: an operation assumed cheap because a *similar* one was measured
+   cheap.
+3. **Partition by user, not by file order.** Per-user work (three decayed profiles, the
+   category shares, the BM25 query) costs ~3.4 ms and was being redone in every chunk a
+   user appeared in. Grouping impressions by a hash of the user id pays it once: 2.7 min
+   per 215k-impression group, and 64 groups covered the file.
+
+**Where this breaks at 10×** (135M impressions, ~2 G candidate rows):
+- The exposure key array is the first wall: 2 G int64 keys = **16 GB**, so it stops fitting
+  and must become either per-shard (time-bucketed) indexes or a counting structure keyed by
+  (article, hour) rather than per-impression.
+- The per-user cost is linear and would reach ~8 M users × 3.4 ms ≈ **7.5 hours** of
+  profile building alone. The fix is precomputation: user profiles are a function of
+  history, not of the impression, so they belong in a nightly batch job, which is exactly
+  how a production system would do it.
+- Wall clock at 10× is ~26 h on this machine, which is past any submission deadline; the
+  work is embarrassingly parallel by user group, so it is a horizontal-scaling problem
+  rather than an algorithmic one.
+
+**A slow measurement that was a machine-state artefact, not a code fact.** Profiling one
+leaderboard chunk showed `searchsorted` taking 0.7 s per call over the 170M-key array;
+re-measuring the same call on a quiet machine took **10 ms**. The difference was memory
+pressure (the run was at 10.6 GB with swap active), not the array. Recorded because A1's
+error log already contains one wrong conclusion drawn from a contended measurement.

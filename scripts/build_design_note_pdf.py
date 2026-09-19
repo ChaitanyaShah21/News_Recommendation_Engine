@@ -1,7 +1,12 @@
-"""Render reports/design_note.md to PDF and report its page count.
+"""Render a design note to PDF and report its page count.
 
-Q6 caps the design note at 4 pages, which is a property of the *rendered* document,
-not the Markdown. This makes that number checkable instead of guessed.
+Defaults to A2's note (Q6: 6-page TARGET, 11pt, 1-inch margins - a guideline, not a
+cap, so going over prints a warning rather than failing). A1's note is rendered with
+`--src reports/design_note.md --pdf reports/design_note.pdf --pt 9.8 --margin 14mm
+--limit 4 --hard`, which is the 4-page cap it was written against.
+
+The page count is a property of the *rendered* document, not the Markdown. This makes
+that number checkable instead of guessed.
 
 Pipeline: Markdown -> HTML (python-markdown, tables + fenced code) -> PDF (headless
 Chromium). Chromium rather than wkhtmltopdf because wkhtmltopdf's engine is an old
@@ -18,14 +23,11 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-SRC = ROOT / "reports" / "design_note.md"
-HTML = ROOT / "reports" / "design_note.html"
-PDF = ROOT / "reports" / "design_note.pdf"
-LIMIT = 4
+import argparse
 
-CSS = """
-@page { size: A4; margin: 14mm 14mm; }
-body { font-family: "DejaVu Serif", Georgia, serif; font-size: 9.8pt; line-height: 1.30;
+CSS_TEMPLATE = """
+@page { size: A4; margin: %(margin)s; }
+body { font-family: "DejaVu Serif", Georgia, serif; font-size: %(pt)spt; line-height: 1.32;
        color: #111; margin: 0; }
 h1 { font-size: 16pt; margin: 0 0 .4em; }
 h2 { font-size: 11.5pt; margin: .85em 0 .3em; border-bottom: 1px solid #ccc;
@@ -71,6 +73,19 @@ def page_count(pdf: Path) -> int:
 
 
 def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--src", default="reports/design_note_a2.md")
+    ap.add_argument("--pdf", default="reports/design_note_a2.pdf")
+    ap.add_argument("--pt", default="11", help="body font size; Q6 says 11pt")
+    ap.add_argument("--margin", default="25.4mm", help="Q6 says 1 inch")
+    ap.add_argument("--limit", type=int, default=6, help="page TARGET (see --hard)")
+    ap.add_argument("--hard", action="store_true",
+                    help="treat --limit as a cap and exit non-zero when over")
+    args = ap.parse_args()
+    SRC, PDF = ROOT / args.src, ROOT / args.pdf
+    HTML = PDF.with_suffix(".html")
+    LIMIT = args.limit
+    CSS = CSS_TEMPLATE % {"margin": args.margin, "pt": args.pt}
     if not SRC.exists():
         sys.exit(f"FATAL: {SRC} not found")
 
@@ -98,9 +113,12 @@ def main() -> int:
     print(f"PDF       : {PDF.relative_to(ROOT)}  ({PDF.stat().st_size / 1024:.0f} KB)")
     print(f"pages     : {pages}  (limit {LIMIT})")
     if pages > LIMIT:
-        print(f"OVER by {pages - LIMIT} page(s) -- trim before submitting.")
-        return 1
-    print("within the limit.")
+        over = pages - LIMIT
+        print(f"{over} page(s) over the {LIMIT}-page target"
+              + (" -- trim before submitting." if args.hard else
+                 " -- Q6 allows this if the content justifies it; check for padding."))
+        return 1 if args.hard else 0
+    print("within the target.")
     return 0
 
 

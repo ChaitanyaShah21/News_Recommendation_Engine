@@ -77,6 +77,28 @@ Step 2 is deliberately **not** part of `build_pipeline.py`: that script rewrites
 `articles.parquet` on every run, so vectors stored there would be recomputed each rebuild
 (2.8 s → ~13 min, a 280× regression) or destroyed (D22).
 
+### Assignment 2 (adds to the above, does not replace it)
+
+A2's steps assume A1's store exists (steps 1–2), then add the behavioural features, the
+trained re-ranker and the A2 evaluation. Timings measured on this machine
+(WSL2 on aarch64, 11 GB RAM + 16 GB swap, no GPU) on 2026-09-19.
+
+| # | Command | Produces | Time |
+|---|---|---|---|
+| A1 | `scripts/build_feature_tables.py` | cached Q1 feature tables, 6 files, 22.5M rows | **3.2 min** MIND, **10.0 min** EB-NeRD |
+| A2 | `scripts/run_reranker.py` | Q2 before/after + paired CIs, model, test scores | ~3 min per dataset |
+| A3 | `scripts/run_retrieved_regime.py` | Q2's retrieved-top-100 regime | ~2 min MIND, ~8 min EB-NeRD |
+| A4 | `scripts/run_nrms.py` | Q3 NRMS baseline, time-term arms, ablation + paired CI | hours (CPU; see the note) |
+| A5 | `scripts/run_extended_eval.py` | Q5 seven metrics × 5 slices × CIs | ~2 min MIND, ~30 min EB-NeRD |
+| A6 | `scripts/run_q9_ablation.py` | Q9 with/without serving-unavailable features | ~10 min per dataset |
+| A7 | `scripts/benchmark_serving.py` | Q4 footprint, per-stage p50/p99, cost per 1k queries | ~5 min per dataset |
+| A8 | `scripts/run_submission_lgbm.py --dataset {mind,ebnerd}` | the A2 leaderboard files | **26 min** MIND, **155 min** EB-NeRD |
+| A9 | `scripts/validate_submission.py --dataset {mind,ebnerd} --method lgbm` | pre-upload checks | ~2 min |
+| A10 | `scripts/build_design_note_pdf.py` | `reports/design_note_a2.pdf` (11pt, 1in, 6-page target) | seconds |
+
+`run_submission_lgbm.py` is **resumable**: scores are written per user-group under
+`data/processed/submission/lgbm_scores_{dataset}/`, and a re-run skips finished groups.
+
 ### Tests
 
 ```bash
