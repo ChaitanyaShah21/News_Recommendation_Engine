@@ -149,3 +149,40 @@ def test_real_val_features_are_in_range(dataset):
     for w in af.EXPOSURE_WINDOWS_HOURS:
         s = exp[f"exposure_share_{w}h"].drop_nulls()
         assert s.min() >= 0 and s.max() <= 1
+
+
+# ------------------------------------- reused impression ids (found 2026-09-19)
+
+def test_two_impressions_sharing_an_id_both_count_as_exposures():
+    # MIND-small's train and dev files both number impressions from 1, so
+    # "mind:1" is two different impressions days apart. Deduplicating exposures
+    # on (impression_id, article_id) silently merged them (11,896 lost showings).
+    ctx = _imps([("x", T0, ["A"]), ("x", T0 + 10 * 60 * timedelta(seconds=1), ["A", "B"]),
+                 ("q", T0 + 30 * 60 * timedelta(seconds=1), ["A"])])
+    out = af.exposure_shares(af.candidate_rows(ctx.filter(pl.col("impression_id") == "q")), ctx)
+    assert _share(out, "q", "A") == 1.0  # 2 of the 2 earlier impressions showed A
+
+
+def test_a_candidate_listed_twice_in_one_impression_counts_once():
+    ctx = _imps([("x", T0, ["A", "A", "B"]), ("q", T0 + H / 2, ["A"])])
+    out = af.exposure_shares(af.candidate_rows(ctx.filter(pl.col("impression_id") == "q")), ctx)
+    assert _share(out, "q", "A") == 1.0
+
+
+def test_non_strict_scores_an_article_absent_from_the_context_as_zero_exposure():
+    ctx = _imps([("x", T0, ["A"])])
+    rows = af.candidate_rows(_imps([("q", T0 + H / 2, ["Z"])]))
+    ix = af.ExposureIndex.build(ctx)
+    with pytest.raises(ValueError, match="never appears"):
+        ix.shares(rows)
+    assert _share(ix.shares(rows, strict=False), "q", "Z") == 0.0
+
+
+def test_non_strict_freshness_floors_at_the_impression_itself():
+    rows = af.candidate_rows(_imps([("q", T0, ["Z"])]))
+    seen = pl.DataFrame({"article_id": ["A"], "first_seen": [T0]})
+    arts = _articles({"Z": T0 + 5 * H})  # catalogue dates it after it was shown
+    with pytest.raises(ValueError):
+        af.freshness_from_seen(rows, arts, seen)
+    out = af.freshness_from_seen(rows, arts, seen, strict=False)
+    assert out["freshness_hours"].to_list() == [0.0]

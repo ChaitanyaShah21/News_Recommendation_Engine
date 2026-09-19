@@ -2204,3 +2204,103 @@ feature that peeks forward, without enumerating how each might. Label blindness 
 any feature that reads the answer. A new feature added to the allowlist is covered
 automatically. That is why these two tests, not per-feature assertions, are the Q9
 deliverable for A2.
+
+---
+
+## Phase A3 — Q2, the trained re-ranker (2026-09-19)
+
+**Context for every decision below.** Chaitanya was away for this stretch and asked for
+all work that could be done alone to go ahead ("do anything that you can do on your own
+first"). With the deadline the next day, each fork was taken at its stated
+recommendation, **marked PROVISIONAL, and written up so it can be reversed.** Each one is
+cheap to undo because the feature tables are cached. None of them counts as agreed until
+he confirms it (R6).
+
+### D36 — Train on the train split, early-stop on val, report on the local test split — PROVISIONAL
+**Chosen:** LightGBM `lambdarank` (the Option A GBDT that Q2 names), fitted on
+`features/{ds}_train.parquet` (the supplied inview lists, one row per candidate, label =
+clicked). Training stops when the validation split's nDCG@10 has not improved for 50
+rounds. **Every headline number comes from D7's local test split**, which chose nothing.
+The history snapshot is each split's own (Landmine 5), and that is already how the
+feature builder works.
+
+- **Hyperparameters were fixed before any result was seen** (`rank/gbdt.PARAMS`: learning
+  rate 0.05, 63 leaves, min 100 rows per leaf, bagging 0.8), not tuned. A tuning sweep
+  scored on test would repeat A1's Finding 5 (choosing after seeing the result).
+- **Alternatives rejected:**
+  - *Train on train+val and report on test.* This leaves no early-stopping set, so the
+    tree count becomes a guess.
+  - *Cross-validation.* Wrong for time-ordered data unless it is done forward-chained,
+    and there is no time budget for that.
+  - *A `binary` click classifier.* It optimises absolute click probability across
+    impressions, which neither leaderboard grades. Worth keeping as a one-line ablation
+    if time allows.
+- **Landmine 4 is enforced, not commented.** `group_sizes` derives the group lengths
+  from the impression ids themselves and raises if any impression's rows are not
+  contiguous. A test shuffles a realistic-shape table and requires the refusal.
+
+**A property of GBDT found while testing it, recorded because it shapes Q3.** Trees split
+on *absolute* feature values. A planted signal that only meant something *relative to its
+own impression* (every candidate in the rack shifted by the same random amount) was
+learned poorly: top-1 accuracy was 0.32, against 1.0 without the shift and 0.125 for
+random. Any feature whose level drifts between impressions but whose within-rack order
+carries the signal is under-used by the model. Candidates are `exposure_share` (the
+absolute share depends on the hour's traffic mix) and `cos_*` (depends on how focused the
+user is). **Within-impression normalisation (rank or z-score within the rack) is
+therefore a principled candidate for Q3's "one change",** motivated by a measured
+property of the model rather than a sweep.
+
+### D37 — Two candidate regimes, one model — PROVISIONAL
+- **Regime 1, the supplied inview list.** This is what both leaderboards grade and what
+  the model is trained on.
+- **Regime 2, retrieved top-K.** A1's semantic generator, unchanged (N = 10 query D12,
+  history excluded D15, in-circulation pool D19), K = 100, over the local test split.
+  The same model re-ranks those 100 without retraining.
+
+Before = retrieval order, after = model order, over the same K articles. Re-ranking a
+fixed set cannot move recall@K, so recall@K is reported once. The ranking metrics are
+defined only on impressions with at least one click among the K. Landmine 8 predicted
+that subset would be small, and its size is reported next to the metrics.
+
+- **Rejected: train a second model on retrieved candidates.** Its negatives would be
+  "articles the user never saw", not "articles the user saw and skipped". That is a
+  different label, and training on it is a separate project.
+- **What this costs:** the model is applied outside its training distribution. That is
+  the honest reading of "use A1's generator, then re-rank", and it is reported as such.
+
+### D38 — The leaderboard's "past": store + leaderboard impressions; synthetic rows kept out — PROVISIONAL
+Featurising the Codabench test sets (93 M MIND / 206 M EB-NeRD candidate rows) needs a
+label-free "log of what was shown before T" for exposure, first-seen and sessions.
+**Chosen:** the local store (every split) plus the leaderboard impressions themselves.
+Both leaderboard weeks start the second the store ends (EB-NeRD 2023-06-01 07:00:00; MIND
+2019-11-16 00:00), so the store is exactly the history a live system would have had.
+Without it, the first 24 h of the test week would read an empty exposure window. Only the
+*existence* of impressions is read; no label column is touched.
+
+**The 200,000 EB-NeRD `is_beyond_accuracy` rows are kept out of the context.** Measured:
+all 200,000 share impression id 0 and the timestamp 2023-06-01 07:00:01, and they carry
+**one** identical 250-article list, one row per distinct user. That is a synthetic probe,
+not served traffic. Counted as exposures, those rows would make 250 articles look like
+they had been shown 200,000 times in one second. They are still scored, in `strict=False`
+mode: an article absent from the context gets exposure 0, and freshness is floored at
+the impression itself.
+
+**Id hygiene the leaderboard forced:** store ids are re-keyed `ctx:<split>:<id>`, and
+every leaderboard row gets `lb:<row>`. `build_rows` now **refuses** a target with
+duplicate impression ids, because the 200,000 shared id-0 rows would otherwise multiply
+every join.
+
+**Engineering consequence:** `build_feature_table` is now `build_context` (built once)
++ `build_rows` (per chunk). The tested path calls both, so the leakage tests cover the
+code the submission runs. The refactor was verified by rebuilding the cached test
+tables. EB-NeRD came out byte-identical; MIND did not, which is how the bug below was
+found.
+
+### Bug found by that regression check: MIND impression ids are reused across splits
+MIND-small's train and dev files both number impressions from 1, so `mind:1` is two
+different impressions (Nov 11 in train, Nov 15 in test): 73,152 ids are shared. The old
+exposure counter de-duplicated on `(impression_id, article_id)` across the whole log, so
+two different impressions that shared an id and showed the same article counted once.
+That lost **11,896 of 8,584,442 exposures (0.14%), on MIND only**. The new index
+de-duplicates within each impression's own list, which is correct. The MIND tables were
+rebuilt and the model retrained. A test pins the case.

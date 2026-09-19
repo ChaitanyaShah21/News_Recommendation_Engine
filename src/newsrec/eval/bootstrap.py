@@ -217,3 +217,33 @@ def bootstrap_coverage(
 
     lo_p, hi_p = _percentiles(alpha)
     return Interval(point, float(np.percentile(values, lo_p)), float(np.percentile(values, hi_p)), n)
+
+
+def paired_bootstrap_diff(
+    treatment: np.ndarray,
+    control: np.ndarray,
+    n_resamples: int = DEFAULT_RESAMPLES,
+    alpha: float = DEFAULT_ALPHA,
+    seed: int = DEFAULT_SEED,
+) -> Interval:
+    """CI for mean(treatment - control) over the SAME impressions.
+
+    WHAT MAKES IT PAIRED
+    Both systems scored the same impressions, so impression i contributes one
+    number: its own difference d_i = treatment_i - control_i. We resample those
+    differences. Two unpaired intervals that happen not to overlap is a much
+    weaker (and differently wrong) test: an easy impression lifts both systems
+    together, and pairing cancels that shared difficulty out of the spread.
+
+    NaN is dropped JOINTLY: an impression undefined for either system is
+    excluded from both. Dropping it independently would compare the two
+    systems on different impression sets - the pairing would be silently gone.
+
+    A claimed gain holds when `low > 0` (the interval excludes zero).
+    """
+    t = np.asarray(treatment, dtype=np.float64)
+    c = np.asarray(control, dtype=np.float64)
+    if t.shape != c.shape:
+        raise ValueError(f"not paired: {t.shape} vs {c.shape} impressions")
+    ok = ~(np.isnan(t) | np.isnan(c))
+    return bootstrap_mean(t[ok] - c[ok], n_resamples=n_resamples, alpha=alpha, seed=seed)

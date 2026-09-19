@@ -16,6 +16,7 @@ lexical score. Q2's "before" system is therefore one column of the "after".
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 
 import numpy as np
 import polars as pl
@@ -62,6 +63,63 @@ def _sparse_rowwise_dot(left, li: np.ndarray, right, ri: np.ndarray) -> np.ndarr
     return out
 
 
+@dataclass
+class Context:
+    """Everything a feature row reads that is NOT specific to one chunk of target
+    impressions: the article side (embeddings, BM25 index, categories) and the
+    label-free log of past impressions (first_seen, exposure, sessions).
+
+    Built once. `build_feature_table` builds it and immediately uses it, so the
+    tested path and the chunked leaderboard path run the same code.
+    """
+
+    dataset: str
+    articles: pl.DataFrame
+    emb_ids: list[str]
+    emb: np.ndarray
+    art_idx: dict
+    index: object
+    title_term: object
+    b_idx: dict
+    category: dict
+    first_seen: pl.DataFrame
+    exposure: af.ExposureIndex
+    sessions: pl.DataFrame | None
+
+
+def build_context(
+    dataset: str,
+    context_impressions,
+    articles: pl.DataFrame,
+    emb_ids: list[str],
+    emb: np.ndarray,
+) -> Context:
+    """context_impressions: DataFrame or LazyFrame of every impression whose
+    existence (never its clicks) a feature may read - all splits of one dataset."""
+    lf = context_impressions.lazy()
+    ds_articles = articles.filter(pl.col("dataset") == dataset)
+    index = bm25.build_index(ds_articles)
+    sessions = None
+    if dataset == "ebnerd":
+        sessions = sf.session_features(
+            lf.select("dataset", "impression_id", "user_id", "session_id", "timestamp",
+                      "device_type").collect(engine="streaming"))
+    return Context(
+        dataset=dataset,
+        articles=ds_articles,
+        emb_ids=emb_ids,
+        emb=emb,
+        art_idx={a: i for i, a in enumerate(emb_ids)},
+        index=index,
+        title_term=bm25_search.build_title_term_matrix(ds_articles, index.vocab),
+        b_idx={a: i for i, a in enumerate(index.article_ids)},
+        category=dict(zip(ds_articles["article_id"], ds_articles["category"])),
+        first_seen=af.first_seen_times(lf).collect(engine="streaming"),
+        exposure=af.ExposureIndex.build(lf),
+        sessions=sessions,
+    )
+
+
 def build_feature_table(
     dataset: str,
     target: pl.DataFrame,
@@ -79,9 +137,26 @@ def build_feature_table(
     history:         the history table; only `target`'s split is used, so the
                      snapshot always matches (Landmine 5).
     """
+    ctx = build_context(dataset, all_impressions, articles, emb_ids, emb)
+    return build_rows(ctx, target, history)
+
+
+def build_rows(ctx: Context, target: pl.DataFrame, history: pl.DataFrame,
+               strict: bool = True) -> pl.DataFrame:
+    """The per-chunk half of `build_feature_table`.
+
+    strict=False only for rows deliberately left out of the context (D38): an
+    article never shown before gets exposure 0 and freshness floored at T,
+    instead of raising.
+    """
+    dataset = ctx.dataset
     splits = target["split"].unique().to_list()
     if len(splits) != 1:
         raise ValueError(f"target must be one split, got {splits} (Landmine 5)")
+    # Every join below is on impression_id. A duplicated id would silently
+    # multiply rows - EB-NeRD's leaderboard file has 200,000 rows sharing id 0.
+    if target["impression_id"].n_unique() != target.height:
+        raise ValueError("target impression_ids are not unique; give each row its own key")
     hist = history.filter(pl.col("split") == splits[0])
 
     rows = af.candidate_rows(target).with_row_index("_row").join(
@@ -101,41 +176,35 @@ def build_feature_table(
     rows = rows.sort("_row")
 
     # --- semantic: cosine against the three decayed user vectors (D35) ---
-    art_idx = {a: i for i, a in enumerate(emb_ids)}
-    ai = np.fromiter((art_idx.get(a, -1) for a in rows["article_id"]), np.int64, rows.height)
+    ai = np.fromiter((ctx.art_idx.get(a, -1) for a in rows["article_id"]), np.int64, rows.height)
     if (ai < 0).any():
         raise ValueError(f"{int((ai < 0).sum())} candidates have no embedding")
     cols: dict[str, pl.Series] = {}
     for scale, h in hf.HALF_LIVES[dataset].items():
-        users = hf.build_decayed_user_vectors(hist, emb_ids, emb, h)
+        users = hf.build_decayed_user_vectors(hist, ctx.emb_ids, ctx.emb, h)
         u_idx = {u: i for i, u in enumerate(users.user_ids)}
         ui = np.fromiter((u_idx.get(u, -1) for u in rows["user_id"]), np.int64, rows.height)
         ok = (ui >= 0) & users.has_query[np.clip(ui, 0, None)]
-        dots = _rowwise_dot(users.matrix, np.clip(ui, 0, None), emb, ai)
+        dots = _rowwise_dot(users.matrix, np.clip(ui, 0, None), ctx.emb, ai)
         cols[f"cos_{scale}"] = pl.Series(np.where(ok, dots, np.nan)).fill_nan(None)
 
     # --- lexical: A1's BM25 score of each candidate for the user's query ---
-    ds_articles = articles.filter(pl.col("dataset") == dataset)
-    index = bm25.build_index(ds_articles)
-    title_term = bm25_search.build_title_term_matrix(ds_articles, index.vocab)
-    queries = bm25_search.build_queries(hist, index, title_term, n_recent=hf.N_RECENT)
+    queries = bm25_search.build_queries(hist, ctx.index, ctx.title_term, n_recent=hf.N_RECENT)
     q_idx = {u: i for i, u in enumerate(queries.user_ids)}
-    b_idx = {a: i for i, a in enumerate(index.article_ids)}
     qi = np.fromiter((q_idx.get(u, -1) for u in rows["user_id"]), np.int64, rows.height)
-    bi = np.fromiter((b_idx.get(a, -1) for a in rows["article_id"]), np.int64, rows.height)
+    bi = np.fromiter((ctx.b_idx.get(a, -1) for a in rows["article_id"]), np.int64, rows.height)
     okq = (qi >= 0) & (bi >= 0) & queries.has_query[np.clip(qi, 0, None)]
-    b = _sparse_rowwise_dot(queries.matrix, np.clip(qi, 0, None), index.doc_term, np.clip(bi, 0, None))
+    b = _sparse_rowwise_dot(queries.matrix, np.clip(qi, 0, None), ctx.index.doc_term, np.clip(bi, 0, None))
     cols["bm25"] = pl.Series(np.where(okq, b, np.nan)).fill_nan(None)
 
     rows = rows.with_columns(**cols)
 
     # --- category share at three scales; 0 for a known user's unseen category,
     #     null for a user with no categorised history at all ---
-    category = dict(zip(ds_articles["article_id"], ds_articles["category"]))
     rows = rows.with_columns(
-        pl.col("article_id").replace_strict(category, default=None).alias("_cat"))
+        pl.col("article_id").replace_strict(ctx.category, default=None).alias("_cat"))
     for scale, h in hf.HALF_LIVES[dataset].items():
-        shares = hf.user_category_shares(hist, category, h)
+        shares = hf.user_category_shares(hist, ctx.category, h)
         known = shares.select("user_id").unique().with_columns(pl.lit(True).alias("_known"))
         rows = (rows.join(shares.rename({"category": "_cat", "share": f"cat_share_{scale}"}),
                           on=["user_id", "_cat"], how="left")
@@ -146,19 +215,19 @@ def build_feature_table(
                     .drop("_known"))
 
     # --- article features (D34b, D34c) ---
-    rows = rows.join(af.freshness_hours(rows.select("impression_id", "timestamp", "article_id"),
-                                        ds_articles, all_impressions),
+    keyed = rows.select("impression_id", "timestamp", "article_id")
+    rows = rows.join(af.freshness_from_seen(keyed, ctx.articles, ctx.first_seen, strict=strict),
                      on=["impression_id", "article_id"], how="left")
-    rows = rows.join(af.exposure_shares(rows.select("impression_id", "timestamp", "article_id"),
-                                        all_impressions),
+    rows = rows.join(ctx.exposure.shares(keyed, strict=strict),
                      on=["impression_id", "article_id"], how="left")
 
     # --- EB-NeRD only: time away (D35) and session context (D34a) ---
     if dataset == "ebnerd":
         rows = rows.join(hf.hours_since_last_click(target, hist), on="impression_id", how="left")
-        rows = rows.join(sf.session_features(all_impressions), on="impression_id", how="left")
+        rows = rows.join(ctx.sessions, on="impression_id", how="left")
 
     out = rows.sort("_row").select(KEYS + [LABEL] + FEATURES[dataset])
     expected = KEYS + [LABEL] + FEATURES[dataset]
     assert out.columns == expected, f"allowlist violated: {out.columns} != {expected}"
+    assert out.height == rows.height, "a join multiplied rows"
     return out

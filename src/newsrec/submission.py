@@ -195,6 +195,12 @@ def load_submission_behaviors(dataset: str, test_root: Path) -> pl.LazyFrame:
         # Submission Guidelines say nothing about the flag, so that claim was
         # inferred, not read. Left as an observation rather than a rule.
         pl.col("is_beyond_accuracy"),
+        # A2 (D34a): session context is available at serving time - it
+        # describes the visit the impression belongs to, up to T. Cast exactly
+        # as ingest_ebnerd does, so leaderboard rows and training rows agree.
+        # read_time / scroll_percentage stay out: measured after serving (Q9).
+        pl.col("session_id").cast(pl.Utf8),
+        pl.col("device_type").cast(pl.Int64),
     )
 
 

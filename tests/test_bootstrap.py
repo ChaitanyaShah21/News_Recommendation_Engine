@@ -313,3 +313,40 @@ def test_train_popularity_head_ignores_never_clicked_articles():
     head = train_popularity_head_set(counts, ids, 0.5)
     assert head == {"a"}
     assert "c" not in head and "d" not in head
+
+
+# --- the paired bootstrap ---------------------------------------------
+
+from newsrec.eval.bootstrap import paired_bootstrap_diff  # noqa: E402
+
+
+def test_paired_sees_a_small_consistent_gain_that_unpaired_intervals_miss():
+    # Huge per-impression difficulty shared by both systems, tiny constant gain.
+    rng = np.random.default_rng(0)
+    difficulty = rng.uniform(0, 1, 2000)
+    control = difficulty
+    treatment = difficulty + 0.01
+    iv = paired_bootstrap_diff(treatment, control, n_resamples=300)
+    assert iv.low > 0 and abs(iv.point - 0.01) < 1e-9
+    a, b = bootstrap_mean(treatment, n_resamples=300), bootstrap_mean(control, n_resamples=300)
+    assert a.low < b.high  # the unpaired intervals overlap
+
+
+def test_paired_nan_is_dropped_jointly():
+    t = np.array([1.0, np.nan, 3.0, 10.0])
+    c = np.array([0.0, 5.0, np.nan, 9.0])
+    iv = paired_bootstrap_diff(t, c, n_resamples=50)
+    assert iv.n == 2 and iv.point == 1.0  # only impressions 0 and 3
+
+
+def test_paired_refuses_misaligned_inputs():
+    with pytest.raises(ValueError, match="paired"):
+        paired_bootstrap_diff(np.ones(3), np.ones(4))
+
+
+def test_paired_no_difference_interval_contains_zero():
+    rng = np.random.default_rng(1)
+    x = rng.normal(0, 1, 3000)
+    y = x + rng.normal(0, 0.1, 3000)
+    iv = paired_bootstrap_diff(x, y, n_resamples=300)
+    assert iv.low < 0 < iv.high

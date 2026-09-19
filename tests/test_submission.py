@@ -60,6 +60,9 @@ def _ebnerd_behaviors(rows):
             ),
             "user_id": pl.Series([r[1] for r in rows], dtype=pl.UInt32),
             "is_beyond_accuracy": pl.Series([r[3] for r in rows], dtype=pl.Boolean),
+            # Present in the real test file (uint32 / int8); A2 reads both (D34a).
+            "session_id": pl.Series([100 + r[0] for r in rows], dtype=pl.UInt32),
+            "device_type": pl.Series([2] * len(rows), dtype=pl.Int8),
         }
     )
 
@@ -169,6 +172,10 @@ def test_ebnerd_submission_behaviors_has_no_label_column_and_keeps_the_flag(tmp_
     assert frame["is_beyond_accuracy"].to_list() == [False, True]
     assert frame["candidate_article_ids"][0].to_list() == ["ebnerd:100", "ebnerd:200"]
     assert frame["impression_id"].to_list() == ["ebnerd:1", "ebnerd:2"]
+    # Same dtypes as the training store, or the session join would not match.
+    assert frame["session_id"].to_list() == ["101", "102"]
+    assert frame.schema["device_type"] == pl.Int64
+    assert "read_time" not in frame.columns and "scroll_percentage" not in frame.columns
 
 
 # --------------------------------------------------------------------------
