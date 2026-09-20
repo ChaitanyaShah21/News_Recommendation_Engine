@@ -227,11 +227,42 @@ def training_samples(b: Batchable, rng: np.random.Generator) -> np.ndarray:
 
 
 def train(model: NRMS, b: Batchable, emb: np.ndarray, epochs: int = 3, batch: int = 256,
-          lr: float = 1e-3, log=print) -> NRMS:
-    torch.manual_seed(SEED)
-    rng = np.random.default_rng(SEED)
+          lr: float = 1e-3, log=print, epoch_offset: int = 0, optimizer=None) -> NRMS:
+    """Train `model` for `epochs` passes.
+
+    A CAVEAT THAT AFFECTS EVERY REPORTED NRMS NUMBER (found 2026-09-20)
+    ------------------------------------------------------------------
+    This function was written to own its whole epoch loop, so it seeds the RNG
+    and builds the optimiser once per CALL. `run_nrms.py` then has to drive it
+    one epoch at a time, because epoch selection needs a validation score after
+    each epoch - and with the defaults that means, per epoch:
+
+      * `rng` is reseeded to SEED, so `training_samples` redraws the SAME
+        negatives in the SAME order every epoch, despite its docstring
+        promising they are "re-drawn every epoch"; and
+      * a fresh Adam is built, discarding momentum and variance estimates.
+
+    Every D41 arm ran this identical procedure, so the ablation comparisons and
+    paired CIs are unaffected - the arms differ only in their time inputs. What
+    it depresses is the ABSOLUTE level, and it partly explains the recorded
+    "validation still rising at epoch 3": the optimiser restarts each epoch.
+
+    The defaults are left as they were, deliberately. D43's word-level run is a
+    comparison against D41's sentence-level numbers, and changing the training
+    procedure would confound the architecture with the optimisation. To train
+    properly instead, build the optimiser once and pass `epoch_offset=ep`:
+
+        opt = torch.optim.Adam(model.parameters(), lr=1e-3)
+        for ep in range(epochs):
+            train(model, b, emb, epochs=1, optimizer=opt, epoch_offset=ep)
+
+    Doing that for real means re-running every arm, which is why it is recorded
+    here as a known deviation rather than silently corrected.
+    """
+    torch.manual_seed(SEED + epoch_offset)
+    rng = np.random.default_rng(SEED + epoch_offset)
     E = torch.from_numpy(emb)
-    opt = torch.optim.Adam(model.parameters(), lr=lr)
+    opt = optimizer if optimizer is not None else torch.optim.Adam(model.parameters(), lr=lr)
     lossf = nn.CrossEntropyLoss()
     for ep in range(epochs):
         model.train()

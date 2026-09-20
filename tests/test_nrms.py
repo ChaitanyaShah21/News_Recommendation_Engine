@@ -152,3 +152,39 @@ def test_word_level_gathers_tokens_not_vectors():
     assert hist_t.shape[-1] == tokens.shape[1]
     # Padding slots must carry PAD, which the encoder masks out.
     assert int(hist_t[~mask].abs().sum()) == 0
+
+
+def test_epoch_offset_changes_the_drawn_negatives_and_default_does_not():
+    """Pins the 2026-09-20 finding both ways.
+
+    `train` seeds from SEED + epoch_offset. With the default offset of 0 every
+    call draws identical samples - which is why `run_nrms.py`, calling it once
+    per epoch, trains each epoch on the same negatives. That default is kept
+    deliberately (D41 comparability), so the test asserts the current behaviour
+    rather than the intended one, and separately asserts that the opt-in path
+    actually differs. If someone changes the default, this fails loudly instead
+    of silently altering every reported NRMS number.
+    """
+    ft, h, emb, row = _world(n_imp=60)
+    b = nrms.prepare(ft, h, row)
+    same_a = nrms.training_samples(b, np.random.default_rng(nrms.SEED + 0))
+    same_b = nrms.training_samples(b, np.random.default_rng(nrms.SEED + 0))
+    other = nrms.training_samples(b, np.random.default_rng(nrms.SEED + 1))
+    assert np.array_equal(same_a, same_b), "offset 0 must be reproducible"
+    assert not np.array_equal(same_a, other), "a different offset must redraw"
+
+
+def test_a_passed_optimizer_is_reused_rather_than_rebuilt():
+    """The other half of the same defect: a fresh Adam per call discards
+    momentum. Passing one in must keep its state across calls."""
+    ft, h, emb, row = _world(n_imp=60)
+    b = nrms.prepare(ft, h, row)
+    m = nrms.NRMS(emb.shape[1])
+    opt = torch.optim.Adam(m.parameters(), lr=1e-3)
+    nrms.train(m, b, emb, epochs=1, batch=64, log=lambda *_: None, optimizer=opt)
+    assert opt.state, "optimizer accumulated no state"
+    # float(), not the tensor: Adam updates `step` IN PLACE, so keeping the
+    # tensor would alias the very value being compared against.
+    n_steps = float(next(iter(opt.state.values()))["step"])
+    nrms.train(m, b, emb, epochs=1, batch=64, log=lambda *_: None, optimizer=opt)
+    assert float(next(iter(opt.state.values()))["step"]) > n_steps, "state was reset"
