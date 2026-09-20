@@ -327,6 +327,52 @@ right about the dataset where it says the signal is weakest.
 | `is_beyond_accuracy` rows | — | 200,000, all impression id 0, one second, one identical 250-article list | D38 measurement |
 | `hours_since_last_click`, p10 / p50 / p90 | — | local test 132 / 153 / 182 h vs leaderboard 24 / 98 / 167 h | feature-sample comparison, D38 |
 
+
+### I.3 Phase A3 continued: Q4 serving, Q5 sliced, Q9 priced (2026-09-19/20, local test split)
+
+**Q4, per single request, K = 100, measured with nothing else running** (`benchmark_serving.py`):
+
+| Quantity | MIND | EB-NeRD |
+|---|---|---|
+| Resident footprint | 283 MB | 475 MB |
+| Stage 1 retrieve, p50 / p99 | 9.0 / 23.7 ms | 9.6 / 22.2 ms |
+| Stage 2 features, p50 / p99 | 223.0 / 348.0 ms | 439.0 / 2,352 ms |
+| Stage 3 score, p50 / p99 | 3.2 / 9.0 ms | 4.3 / 6.9 ms |
+| Total, p50 / p99 | 237 / **360 ms** | 452 / **2,369 ms** |
+| Per-user share of stage 2 | 13.5% | 16.8% |
+| Throughput per core / Little's law bound | 4.2 q/s / 1/0.237 s = 4.2 | 1.5 q/s |
+| Cost per 1,000 queries @ $0.04/vCPU-h | $0.0027 | $0.0077 |
+| Cores for 1,000 QPS | 239 | 689 |
+| p99 < 100 ms | **not met** | **not met** |
+| Batch rate, same code | ~11,500 rows/s | ~22,000 rows/s (leaderboard run) |
+
+**Q5, sliced AUC (paired difference against A1's semantic scorer):**
+
+| Slice | MIND n | MIND diff | EB-NeRD n | EB-NeRD diff |
+|---|---|---|---|---|
+| all | 21,947 | +0.0048 [0.0012, 0.0080] | 186,721 | +0.1971 [0.1953, 0.1989] |
+| cold (≤5 history) | 3,904 | **−0.0113** | 680 | +0.1810 |
+| warm | 18,043 | +0.0083 | 186,041 | +0.1971 |
+| head-exposure | 13,108 | **−0.0127 [−0.0176, −0.0079]** | 98,719 | +0.2179 |
+| tail-exposure | 5,917 | +0.0353 | 87,759 | +0.1741 |
+| mixed (in neither head nor tail) | 2,922 | — | 243 | — |
+
+Beyond-accuracy at K=10 (semantic → LambdaRank): category diversity 0.8166 → 0.7352 (MIND),
+0.7993 → 0.8029 (EB-NeRD); novelty 17.34 → 17.69 and 18.87 → 19.06; coverage
+0.0283 → 0.0318 and 0.0260 → 0.0247. Coverage has no CI by D27.
+
+**Q9, the price of a serving-unavailable feature:**
+
+| | honest (ships) | + unavailable | paired difference |
+|---|---|---|---|
+| MIND AUC | 0.6144 | 0.5994 | **−0.0150 [−0.0181, −0.0118]** (window truncated; unmeasurable) |
+| EB-NeRD AUC | 0.7428 | 0.7590 | **+0.0162 [0.0153, 0.0172]** |
+
+MIND's forward window: 37–138 h of future in training, **5.7–11.4 h at test**, mean of the
+feature 0.075 → 0.241. EB-NeRD's leaky gain is carried by `total_pageviews` (17%) and
+`future_exposure_share_24h` (16%); `read_time` and `scroll_percentage` are rack-constant
+and therefore inert under a ranking objective.
+
 ---
 
 ## J. How to re-measure
