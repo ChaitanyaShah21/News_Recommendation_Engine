@@ -393,6 +393,21 @@ Validation trace (baseline): MIND 0.5967 → 0.6039 → 0.6107 (still rising at 
 EB-NeRD 0.5818 → 0.5848 → 0.5823 (epoch 2 selected). Training cost after D41's subsample:
 ~9 min per MIND epoch, ~6 min per EB-NeRD epoch, ~30 min per arm including scoring.
 
+
+### I.5 Codabench, the external check (2026-09-20)
+
+| | A1 submitted system | A2 (LambdaRank) | offline test AUC | offline vs leaderboard |
+|---|---|---|---|---|
+| MIND (comp. 13967) | 0.6191 | **0.6181**, rank 69 (sub 934561) | 0.6144 | 0.0037 apart |
+| EB-NeRD (comp. 2469) | 0.5396 | **0.7397**, rank 77 (sub 934124) | 0.7428 | **0.0031 apart** |
+
+**EB-NeRD: +0.2001 over A1**, and the offline harness predicted the level to within 0.0031.
+**MIND: −0.0010 against A1**, i.e. the two systems are indistinguishable there, although
+the offline harness predicted a +0.0048 gain. The offline *level* transferred on both
+datasets (≤0.004); the offline *delta* transferred only on EB-NeRD. Consistent with the
+slice analysis, which already showed MIND's aggregate gain hiding a −0.0127 loss on
+head-exposure impressions.
+
 ---
 
 ## J. How to re-measure

@@ -334,7 +334,25 @@ difference was memory pressure, not the array. A1's error log already contains a
 conclusion that had to be withdrawn for exactly this reason, which is why the latency
 figures in §5 were taken with nothing else running.
 
-## 9. Reproducing, and what is ours
+## 9. The external check: both leaderboards
+
+| | A1's submitted system | A2 (this system) | our offline test AUC |
+|---|---|---|---|
+| MIND | 0.6191 | **0.6181** (rank 69) | 0.6144 |
+| EB-NeRD | 0.5396 | **0.7397** (rank 77) | 0.7428 |
+
+**EB-NeRD gains +0.2001 AUC over A1, and our offline harness predicted that level to within
+0.0031** — on 13.5M unseen impressions, scored by the organisers' own program. That is the
+strongest evidence we have that the offline numbers in this note mean something.
+
+**On MIND the two systems are indistinguishable (−0.0010), although offline we measured
++0.0048.** We take that at face value rather than explaining it away: the MIND gain was
+marginal to begin with, its confidence interval [0.0012, 0.0080] was narrow but small, and
+§6 already showed the aggregate concealing a **−0.0127** loss on head-exposure
+impressions — which is most of the leaderboard. The offline *level* transferred on both
+datasets (≤0.004); the offline *delta* transferred only where the signal was large.
+
+## 10. Reproducing, and what is ours
 
 infrastructure, not pipeline: the organisers' scoring program, hidden reference data and
 metrics are used unmodified.
