@@ -33,6 +33,7 @@ from newsrec.retrieval import semantic  # noqa: E402
 PROCESSED = REPO_ROOT / "data" / "processed"
 FEATS = PROCESSED / "features"
 REPORTS = REPO_ROOT / "reports"
+CKPT = PROCESSED / "checkpoints"
 METRICS = ["AUC", "MRR", "nDCG@5", "nDCG@10"]
 ARMS = {
     "nrms": [],
@@ -65,6 +66,11 @@ def main() -> None:
                          "tokens, instead of D39's projection of the frozen sentence "
                          "embedding. Needs scripts/build_word_vocab.py to have run.")
     ap.add_argument("--tag", default="", help="suffix for the report and model filenames")
+    ap.add_argument("--val-impressions", type=int, default=VAL_SAMPLE,
+                    help="seeded subsample of val impressions used to CHOOSE the epoch. "
+                         "The test split is never subsampled (D41).")
+    ap.add_argument("--restart", action="store_true",
+                    help="ignore any existing checkpoint and train from scratch")
     ap.add_argument("--train-impressions", type=int, default=60_000,
                     help="seeded subsample of TRAIN impressions per arm (D41). 0 = all. "
                          "Measured 2026-09-19: a full MIND epoch is ~55 min on this CPU, "
@@ -90,10 +96,19 @@ def main() -> None:
                                                         dataset=ds)
         row = {a: i for i, a in enumerate(ids)}
         h = {s: hist.filter(pl.col("split") == s) for s in ("train", "val", "test")}
-        ft = {"train": sample_impressions(pl.read_parquet(FEATS / f"{ds}_train.parquet"),
+        # Only the columns NRMS actually reads. The feature tables now carry 30-34
+        # columns (D42), and holding three splits of them whole cost ~6 GB RSS on
+        # an 11 GB machine - which is the likeliest reason WSL took the first
+        # word-level run with it. The time columns of EVERY arm are kept, because
+        # the arms are trained in one process.
+        keep = ["impression_id", "user_id", "article_id", "clicked"]
+        keep += sorted({c for a in args.arms for c in ARMS[a]})
+        ft = {"train": sample_impressions(pl.read_parquet(FEATS / f"{ds}_train.parquet",
+                                                          columns=keep),
                                          args.train_impressions or 10**9),
-              "val": sample_impressions(pl.read_parquet(FEATS / f"{ds}_val.parquet"), VAL_SAMPLE),
-              "test": pl.read_parquet(FEATS / f"{ds}_test.parquet")}
+              "val": sample_impressions(pl.read_parquet(FEATS / f"{ds}_val.parquet",
+                                                        columns=keep), args.val_impressions),
+              "test": pl.read_parquet(FEATS / f"{ds}_test.parquet", columns=keep)}
 
         print(f"{ds}: train {ft['train']['impression_id'].n_unique():,} impressions / "
               f"{ft['train'].height:,} rows; val {ft['val']['impression_id'].n_unique():,}; "
@@ -104,9 +119,25 @@ def main() -> None:
             b = {s: nrms.prepare(ft[s], h[s], row, time_cols=cols or None) for s in ft}
             torch.manual_seed(nrms.SEED)
             model = nrms.NRMS(emb.shape[1], n_time=len(cols), word_embeddings=word_emb)
-            best, best_auc = None, -1.0
+            best, best_auc, start_ep = None, -1.0, 0
+            ckpt_path = CKPT / f"nrms_{ds}_{arm}{args.tag}.ckpt"
+
+            # RESUME. The word-level run is ~16 h; WSL restarted under an earlier
+            # one and took 3 h of compute with it, because the best weights lived
+            # only in memory until every epoch had finished. A checkpoint after
+            # each epoch caps the loss of a crash at one epoch (~2.3 h) instead
+            # of the whole arm.
+            if ckpt_path.exists() and not args.restart:
+                c = torch.load(ckpt_path, weights_only=False)
+                model.load_state_dict(c["model"])
+                best, best_auc, start_ep = c["best"], c["best_auc"], c["epoch"]
+                print(f"{ds} {arm}: resuming after epoch {start_ep}, "
+                      f"best val AUC so far {best_auc:.4f}", flush=True)
+            if start_ep >= args.epochs and best is not None:
+                print(f"{ds} {arm}: already complete, skipping training", flush=True)
+
             t0 = time.perf_counter()
-            for ep in range(args.epochs):
+            for ep in range(start_ep, args.epochs):
                 nrms.train(model, b["train"], emb, epochs=1, log=lambda m: print(f"{ds} {arm}{m}"))
                 v = metrics.evaluate_impressions(nrms.score(model, b["val"], emb), labels_of(b["val"]))
                 auc = float(np.nanmean(v.auc))
@@ -114,6 +145,14 @@ def main() -> None:
                       f"({time.perf_counter() - t0:.0f} s)", flush=True)
                 if auc > best_auc:
                     best_auc, best = auc, copy.deepcopy(model.state_dict())
+                # Written to a temp file and renamed: a crash DURING the write
+                # would otherwise leave a truncated checkpoint that resumes into
+                # garbage, which is worse than having none.
+                CKPT.mkdir(parents=True, exist_ok=True)
+                tmp = ckpt_path.with_suffix(".ckpt.tmp")
+                torch.save({"model": model.state_dict(), "best": best,
+                            "best_auc": best_auc, "epoch": ep + 1}, tmp)
+                tmp.replace(ckpt_path)
             model.load_state_dict(best)
             per[arm] = metrics.evaluate_impressions(
                 nrms.score(model, b["test"], emb), labels_of(b["test"])).as_dict()
