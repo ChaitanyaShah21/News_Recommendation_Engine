@@ -105,10 +105,41 @@ trained re-ranker and the A2 evaluation. Timings measured on this machine
 `run_submission_lgbm.py` is **resumable**: scores are written per user-group under
 `data/processed/submission/lgbm_scores_{dataset}/`, and a re-run skips finished groups.
 
+### Extension week (2026-09-20 → 26, branch `a2-improvements`)
+
+`main` carries the submitted system unchanged. These add to it.
+
+| # | Command | Produces | Time |
+|---|---|---|---|
+| B1 | `scripts/build_feature_tables.py` | rebuilds the tables **with D42's 20 rack columns** | 3.2 min MIND, 10.0 min EB-NeRD |
+| B2 | `scripts/run_reranker.py --features rack` | the rack model, test metrics, importances | ~2 min MIND, ~8 min EB-NeRD |
+| B3 | `scripts/compare_rack.py` | rack vs shipped, **paired** CIs per metric | ~1 min per dataset |
+| B4 | `scripts/run_extended_eval.py --extra-models _rack --tag _rack` | sliced metrics for both models side by side | ~2 min MIND, ~30 min EB-NeRD |
+| B5 | `scripts/benchmark_serving.py --model-tag _rack --online` | batch **and** online paths, timed in one process | ~5 min per dataset |
+| B6 | `scripts/build_word_vocab.py` | `words_mind.npz`: vocabulary, GloVe matrix, title tokens | ~20 s (after the 862 MB GloVe download) |
+| B7 | `scripts/run_nrms.py --word-level --tag _word --arms nrms nrms+fresh+exposure` | D43's faithful word-level NRMS, 2 arms | **~16.6 h** (CPU) |
+
+**B7 is resumable.** Each epoch writes `data/processed/checkpoints/nrms_{ds}_{arm}_word.ckpt`;
+re-running the same command continues from the last completed epoch, and `--restart`
+ignores the checkpoint. This exists because WSL restarted ~3 h into the first attempt and
+the run had no checkpoints — see the error log.
+
+**B5 must be run on a quiet machine, and ideally more than once.** Absolute latencies on
+this laptop move with machine state (2026-09-16 and 2026-09-20 error-log entries); the
+script times both paths in one process so the *ratio* survives, but a single run's p99 does
+not travel.
+
+### Diagnostics
+
+`scripts/diagnostics/` holds the measurement scripts behind `reports/NUMBERS.md` section K —
+the between-rack variance that motivated D42, the validation arm sweep that selected it, the
+rebuild regression check, the word-level timing, the serving profile, and the mutation
+harness. See `scripts/diagnostics/README.md` for which script produces which figure.
+
 ### Tests
 
 ```bash
-.venv/bin/python -m pytest          # 326 tests, ~5 min
+.venv/bin/python -m pytest          # 354 tests, ~3-6 min depending on machine state
 .venv/bin/python -m pytest tests/test_no_leakage.py   # the Q9 deliverable
 ```
 
