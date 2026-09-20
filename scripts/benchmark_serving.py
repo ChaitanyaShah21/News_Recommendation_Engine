@@ -36,6 +36,8 @@ import numpy as np  # noqa: E402
 import polars as pl  # noqa: E402
 
 from newsrec.features import assemble  # noqa: E402
+from newsrec.features import history as hf  # noqa: E402
+from newsrec.retrieval import bm25_search  # noqa: E402
 from newsrec.rank import gbdt  # noqa: E402
 from newsrec.retrieval import availability as avail_mod  # noqa: E402
 from newsrec.retrieval import semantic, semantic_search  # noqa: E402
@@ -109,7 +111,7 @@ def main() -> None:
     }
 
     sample = target.sample(min(args.requests, target.height), seed=gbdt.SEED)
-    stage = {"retrieve": [], "features": [], "score": [], "total": []}
+    stage = {"retrieve": [], "features": [], "score": [], "total": [], "profile_part": []}
     served = 0
     for row in sample.iter_rows(named=True):
         u = row["user_id"]
@@ -133,6 +135,20 @@ def main() -> None:
         booster.predict(gbdt.feature_matrix(ft, feats))
         t_end = time.perf_counter()
 
+        # How much of the feature stage is PER-USER work - three decayed
+        # profiles, three category-share tables and the BM25 query. It depends
+        # only on the user's history, never on the request, so a production
+        # system precomputes it nightly. Measured separately (repeating it, so
+        # it is not subtracted from a number it was part of) to make the
+        # "precompute this" claim in the design note a measurement.
+        one_hist = hist_split.filter(pl.col("user_id") == u)
+        t_p = time.perf_counter()
+        for scale, half in hf.HALF_LIVES[ds].items():
+            hf.build_decayed_user_vectors(one_hist, ids, emb, half)
+            hf.user_category_shares(one_hist, ctx.category, half)
+        bm25_search.build_queries(one_hist, ctx.index, ctx.title_term, n_recent=hf.N_RECENT)
+        stage["profile_part"].append((time.perf_counter() - t_p) * 1e3)
+
         stage["retrieve"].append((t_retr - t_req) * 1e3)
         stage["features"].append((t_feat - t_retr) * 1e3)
         stage["score"].append((t_end - t_feat) * 1e3)
@@ -147,6 +163,11 @@ def main() -> None:
            "latency_ms": {k: {m: round(v, 2) for m, v in percentiles(x).items()}
                           for k, x in stage.items()},
            "sla_ms": SLA_MS, "vcpu_hour_usd": VCPU_HOUR_USD}
+    prof = out["latency_ms"]["profile_part"]["p50"]
+    out["precomputable_share_of_features"] = round(
+        prof / out["latency_ms"]["features"]["p50"], 3)
+    out["p99_if_profiles_precomputed_ms"] = round(
+        out["latency_ms"]["total"]["p99"] - out["latency_ms"]["profile_part"]["p99"], 1)
     p99 = out["latency_ms"]["total"]["p99"]
     mean = out["latency_ms"]["total"]["mean"]
     # Cost: one request occupies one core for `mean` ms, so a core serves

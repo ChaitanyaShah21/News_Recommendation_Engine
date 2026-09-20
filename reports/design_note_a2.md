@@ -142,9 +142,58 @@ selecting a claim after seeing its result is a tautology in disguise.
 
 <!-- TBD: NRMS ablation table (4 arms, paired CI) from reports/nrms_ablation_*_test.csv -->
 
-## 5. Q4 — serving and scale
+## 5. Q4 — serving: memory, p99, and cost per 1,000 queries
 
-<!-- TBD: footprint / p50-p99 per stage / cost per 1000 queries, from reports/serving_benchmark_*.json -->
+Measured per **single user request** (K = 100), single process, **with nothing else running**
+— NRMS training was suspended for the measurement, because A1's error log already contains
+a conclusion that had to be withdrawn after being taken on a contended machine.
+
+| | MIND | EB-NeRD |
+|---|---|---|
+| resident footprint, total | **283 MB** | **475 MB** |
+| — largest items | embeddings 100 MB · user vectors 77 MB · exposure index 71 MB · BM25 19 MB | embeddings 193 MB · exposure index 123 MB · user vectors 61 MB · session table 44 MB |
+| start-up (context build) | 5.2 s | 137 s at leaderboard scale |
+| stage 1, retrieve top-100 | p50 **9.0 ms**, p99 23.7 ms | p50 **9.6 ms**, p99 22.2 ms |
+| stage 2, build features | p50 **223.0 ms**, p99 348.0 ms | p50 **439.0 ms**, p99 2,352 ms |
+| stage 3, score 100 candidates | p50 **3.2 ms**, p99 9.0 ms | p50 **4.3 ms**, p99 6.9 ms |
+| **total** | p50 237 ms, **p99 360 ms** | p50 452 ms, **p99 2,369 ms** |
+| throughput per core | 4.2 q/s | 1.5 q/s |
+| **cost per 1,000 queries** (at $0.04 / vCPU-hour) | **$0.0027** | **$0.0077** |
+| cores for 1,000 QPS | 239 | 689 |
+| **p99 < 100 ms SLA** | **not met** | **not met** |
+
+**Little's law as a consistency check.** With one request in flight, X ≤ 1/R: MIND's
+R = 0.237 s gives X ≤ 4.2 q/s, which is exactly the measured per-core throughput. The
+model is therefore internally consistent, and the only way past 4.2 q/s per core is to cut
+R or add concurrency.
+
+**We fail the SLA, and the reason is architectural rather than algorithmic.** Stage 1
+(9 ms) and stage 3 (3–4 ms) are comfortably inside budget. **Feature assembly is 93–97% of
+the request**, and the honest diagnosis is that we are calling a *batch* builder once per
+request:
+
+- Only **13.5% (MIND) / 16.8% (EB-NeRD)** of that stage is per-user profile work — three
+  decayed profiles, three category-share tables, the BM25 query — measured separately. So
+  "precompute user profiles nightly" is necessary but **not** sufficient; it buys ~30 ms of
+  223 ms.
+- The remainder is fixed per-call cost: DataFrame joins against whole-dataset tables (a
+  1.2M-row session table, 125k articles, a 65k-entry category map) to answer a 100-row
+  question. The same code processes **~11,500 rows/s in bulk** (2.25M rows in 195 s) and
+  **~450 rows/s one request at a time** — a ~26× penalty that is all overhead.
+
+**What it would take to meet p99 < 100 ms** (a projection from the measurements above, not
+a measurement): precompute user profiles into a key-value store (−30 ms), replace the
+per-request joins with array lookups keyed by article row (the join targets are all static
+within an hour), and cache article-level features by (article, hour) — the same structure
+§8 wants at 10×. Stages 1 and 3 already sum to ~13 ms, so a feature lookup path of ~20 ms
+would put p99 near 40 ms and the cost per 1,000 queries near $0.0003. **We did not build
+that**, and saying so is more useful than quoting a number we did not measure.
+
+**Where the money actually goes at our scale.** The leaderboard run is the batch case and
+it is cheap: 206M candidate rows featurised and scored in 155 min on one machine, ~22,000
+rows/s, i.e. the whole 13.5M-impression test set for well under a dollar of compute. Our
+system is a strong batch scorer and a weak online one, which is the correct thing to know
+about it.
 
 ## 6. Q5 — extended evaluation, sliced
 

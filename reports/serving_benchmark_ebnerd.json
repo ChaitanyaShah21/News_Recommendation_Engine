@@ -1,0 +1,70 @@
+{
+  "dataset": "ebnerd",
+  "k": 100,
+  "requests_measured": 200,
+  "startup_context_s": 15.9,
+  "startup_total_s": 22.0,
+  "footprint_bytes": {
+    "bm25 index (sparse doc-term)": 22257872,
+    "bm25 title-term matrix": 7259544,
+    "article embeddings": 192830976,
+    "user vectors (test split)": 60549120,
+    "exposure index (2 int64 arrays)": 122469328,
+    "first-seen table": 153076,
+    "availability masks (1h buckets)": 5900427,
+    "session table": 43667769,
+    "category map (rough)": 17826822,
+    "model (trees, on disk)": 2307868
+  },
+  "footprint_total_mb": 475.2,
+  "latency_ms": {
+    "retrieve": {
+      "n": 200,
+      "mean": 10.34,
+      "p50": 9.64,
+      "p95": 14.78,
+      "p99": 22.2,
+      "max": 24.65
+    },
+    "features": {
+      "n": 200,
+      "mean": 673.8,
+      "p50": 438.97,
+      "p95": 1646.73,
+      "p99": 2352.07,
+      "max": 2973.75
+    },
+    "score": {
+      "n": 200,
+      "mean": 4.35,
+      "p50": 4.27,
+      "p95": 5.44,
+      "p99": 6.93,
+      "max": 10.72
+    },
+    "total": {
+      "n": 200,
+      "mean": 688.49,
+      "p50": 451.81,
+      "p95": 1659.83,
+      "p99": 2369.44,
+      "max": 2986.75
+    },
+    "profile_part": {
+      "n": 200,
+      "mean": 75.97,
+      "p50": 73.92,
+      "p95": 87.36,
+      "p99": 92.42,
+      "max": 125.8
+    }
+  },
+  "sla_ms": 100.0,
+  "vcpu_hour_usd": 0.04,
+  "precomputable_share_of_features": 0.168,
+  "p99_if_profiles_precomputed_ms": 2277.0,
+  "qps_per_core": 1.5,
+  "cost_per_1000_queries_usd": 0.00765,
+  "meets_sla": false,
+  "cores_for_1000_qps": 689
+}
