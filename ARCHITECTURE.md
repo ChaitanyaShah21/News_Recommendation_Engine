@@ -2784,6 +2784,8 @@ cost per 1,000 queries $0.003078 → $0.000162.
 machine (the 2026-09-16 procedure), the batch p99 came back **14,467.94 ms**: the heavy
 tail **reproduces**, its magnitude **does not**, moving 1.5x on identical code.
 
+**Superseded in part by a third run — see the correction at the end of this entry.**
+
 **So no p99 speedup is quoted for EB-NeRD.** With a denominator that unstable, "665x" and
 "296x" are both available by choosing a run, and choosing would be the same error as
 choosing an improvement after seeing its result. What is quoted instead is the **p50
@@ -2804,3 +2806,51 @@ never fired because `pgrep -f <pattern>` matches the waiting shell's own command
 first cost nothing; the second could have made a contended measurement look clean. Waits
 now use a sentinel file. This is the same family as the 2026-08-25 stale-`__pycache__`
 entry: tooling that fails by staying quiet.
+
+### D44b — correction: what the serving numbers support, after a third measurement
+
+**Date:** 2026-09-20 (post-restart) · measured · **partly overturns D44a**
+
+A third EB-NeRD run was taken minutes after `wsl --shutdown`, on a cold page cache with
+swap reset to zero. It changes two conclusions, in opposite directions.
+
+**1. The extreme batch tail was memory-state amplification, not the batch path.** Fresh-VM
+batch p99 is **2,742.75 ms**, against 14,467.94 and 22,397.72 on a day-old VM — and it
+reconciles with the **2,352 ms recorded on 2026-09-19**. D44a was right to refuse to quote
+a p99 ratio and right that the tail is real (p99 is still 7.3x the p50), but the
+14-22 second figures were a property of the machine, not of `build_rows`. The join
+mechanism D44a identified still stands as the explanation of the *level*.
+
+**2. A cold cache makes stage 1 five times worse, and that breaks the SLA claim.**
+
+| p99, ms | warm | cold |
+|---|---|---|
+| `retrieve` (stage 1, shared by both paths) | 24.38 | **121.49** |
+| `online_features` (what D44 changed) | 6.70 | **6.76** |
+| `online_total` | 48.93 | **125.47** |
+
+`pgmajfault` = 10,920 since boot. Retrieval touches the 193 MB embedding matrix and the
+availability masks; cold, those are disk reads.
+
+**The claim "the pipeline now meets p99 < 100 ms" is therefore withdrawn as stated.** It
+holds warm and fails cold, and the failure is entirely in a stage D44 did not touch.
+
+**What survives, and it is the claim that was actually being made:** D44 removes the
+*feature stage* as the bottleneck, and that is robust to machine state in a way nothing
+else here is — `online_features` p99 is **6.70-8.27 ms across all three runs and both
+memory conditions**, against a batch feature stage of 2,742-22,398 ms. The p50 speedup is
+stable at 27.6-33.9x (EB-NeRD) and 19.5x (MIND).
+
+**And it yields a concrete serving requirement with a number behind it:** the process must
+**pre-fault the embedding matrix and indexes before accepting traffic**. Not doing so costs
+121.49 ms at p99 on stage 1 alone — more than the whole SLA budget, from a stage whose warm
+p99 is 24 ms. That is a provisioning fix, not an algorithmic one, and it is exactly the
+kind of claim that would have been asserted without evidence had the third run not been
+taken.
+
+**Why three runs.** The first produced a number too good to report (a 665x p99 ratio).
+Had only one been taken, in any of the three machine states, the conclusion would have been
+wrong in a different direction each time: run 1 would have overstated D44, run 2 would have
+overstated the batch tail, run 3 would have understated the system by blaming D44's path
+for a cold-cache stage-1 cost. On this machine a latency measured once is not a measurement
+— the 2026-09-16 error-log entry, generalised.

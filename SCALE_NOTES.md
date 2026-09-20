@@ -476,3 +476,43 @@ request, not of the builder being wrong. **At 10x scale the join cost grows with
 and article tables, not with the request**, so the per-request path degrades while the batch
 path does not — which is the strongest argument in this document for keeping the two paths
 structurally separate rather than sharing one implementation.
+
+### Correction: the tail was the machine, and the cold cache is the real serving risk (2026-09-20, post-restart)
+
+A third EB-NeRD run, taken minutes after `wsl --shutdown`, revises the entry above.
+
+**The batch tail shrinks by 5x on a fresh VM** — p99 14,467.94 → **2,742.75 ms**, p95
+10,134.99 → 1,069.37, max 30,063 → 4,611 — and lands close to the 2,352 ms recorded on
+2026-09-19. So the 14-22 second tails were **memory-state amplification on a VM up for a
+day with ~14M pages cumulatively swapped**, not a property of `build_rows`. The join
+analysis still explains the *level* (p99 is 7.3x the p50); it does not explain the extremes,
+because the extremes were the machine.
+
+**The opposite artefact is the one that actually threatens serving.** On the same fresh VM,
+stage 1 got five times worse at p99:
+
+| p99, ms | warm (VM up 1 day) | cold (fresh VM) |
+|---|---|---|
+| retrieve | 24.38 | **121.49** |
+| online features | 6.70 | 6.76 |
+| online total | 48.93 | **125.47** |
+
+`pgmajfault` = 10,920 since boot. Retrieval touches the 193 MB embedding matrix and the
+availability masks; on a cold page cache those first touches are disk reads. The context
+build moved the other way for the same reason in reverse (26.0 → 8.7 s).
+
+**The operational lesson, which is the useful part.** A newly-started replica is *slower on
+the path that matters* and *faster on the path that does not*. A serving system that scales
+out under load — adding replicas exactly when latency matters most — would hit the cold
+case at the worst possible moment. **Pre-faulting the embedding matrix and indexes before a
+replica accepts traffic is therefore not a micro-optimisation; it is the difference between
+121 ms and 24 ms at p99 on a stage whose entire budget is 100 ms.**
+
+**Where this breaks at 10x:** the embedding matrix grows with the corpus (193 MB here for
+125,541 articles), so cold-start pre-faulting gets proportionally more expensive while the
+SLA does not move. That argues for memory-mapped shared indexes across replicas on a host,
+or a warm pool, rather than per-replica loading.
+
+**And a method note worth more than the numbers.** Three runs were taken only because the
+first produced a result too flattering to trust. Each of the three, taken alone, would have
+supported a different and wrong conclusion. Latency on this machine is not a scalar.

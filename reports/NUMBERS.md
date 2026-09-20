@@ -658,3 +658,47 @@ with — and those are exactly the columns rack normalisation repairs.
 **Beyond-accuracy at K = 10 (base → rack):** MIND category diversity 0.7352 → 0.7426,
 novelty 17.6906 → 17.7043, coverage 0.0318 → 0.0311. EB-NeRD 0.8029 → 0.8039,
 19.0593 → 19.0271, coverage 0.0247 → 0.0256. No meaningful beyond-accuracy cost.
+
+### K.9 EB-NeRD serving, three runs — and the correction they force
+
+Run 3 was taken minutes after a `wsl --shutdown`, i.e. on a **cold page cache** with swap
+reset to zero (`pswpin`/`pswpout` both 0). Runs 1 and 2 were on a VM up for ~1 day with
+~1.4 GB of swap in use and ~14M pages cumulatively paged out.
+
+| p99, ms | run 1 (warm) | run 2 (warm, control) | **run 3 (cold, fresh VM)** |
+|---|---|---|---|
+| batch `features` | 22,397.72 | 14,467.94 | **2,742.75** |
+| batch `total` | 22,419.01 | 14,481.16 | **2,756.90** |
+| `retrieve` (stage 1, shared) | — | 24.38 | **121.49** |
+| **`online_features`** | **8.27** | **6.70** | **6.76** |
+| `online_total` | 33.67 | 48.93 | **125.47** |
+
+**Two opposite artefacts, both real:**
+
+1. **The extreme batch tail was memory-state amplification.** On a fresh VM the batch p99
+   is 2,742.75 ms, which reconciles with the **2,352 ms recorded on 2026-09-19**. The batch
+   path still has a genuine tail (p99 is 7.3x its p50 of 375 ms), but not a 30-second one.
+2. **A cold page cache makes stage 1 five times worse at p99** (24.38 → 121.49 ms).
+   `pgmajfault` = 10,920 since boot: retrieval touches the 125,541 x 384 float32 embedding
+   matrix (193 MB) and the availability masks, and on a cold cache those are disk reads.
+   Startup context build moved the other way, 26.0 → 8.7 s, from the same cause in reverse.
+
+**What this forces us to stop claiming, and what survives.**
+
+- **Not robust:** "the two-stage pipeline meets a p99 < 100 ms SLA". It does warm (33.67,
+  48.93) and does not cold (125.47). The failure is entirely in **stage 1, which D44 did
+  not touch and both paths share**.
+- **Robust across every run and both memory conditions:** D44 removes the *feature stage*
+  as the bottleneck. `online_features` p99 is **6.70–8.27 ms** in all three runs, against a
+  batch feature stage of **2,742–22,398 ms**. The p50 speedup is likewise stable
+  (27.6x–33.9x on EB-NeRD; 19.5x on MIND).
+- **The actionable consequence, now measured rather than asserted:** a serving process must
+  **pre-fault the embedding matrix and indexes at start-up before accepting traffic**. The
+  cost of not doing so is 121.49 ms at p99 on stage 1 alone — more than the entire SLA
+  budget, from a stage whose warm p99 is 24 ms.
+
+**Method note.** Three runs were taken because the first produced a number too good to
+report (a 665x p99 ratio). Had only one been taken — in any of the three states — the
+conclusion drawn would have been wrong in a different direction each time. This is the
+2026-09-16 error-log entry generalising: on this machine, a latency measured once is not a
+measurement.
