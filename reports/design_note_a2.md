@@ -2,8 +2,9 @@
 
 **Chaitanya Shah · Systems Design** · Chaitanya Shah
 Done **solo**, which the specification permits for this team assignment.
-Code: `src/newsrec/` · decision log: `ARCHITECTURE.md` (A1's D1–D32, A2's D33–D40) ·
-every quoted figure traces to `reports/NUMBERS.md`.
+**Code: https://github.com/ChaitanyaShah21/IRE_A2** · decision log: `ARCHITECTURE.md`
+(A1's D1–D32, A2's D33–D41) · every quoted figure traces to `reports/NUMBERS.md` ·
+326 tests, including the Q9 leakage suite.
 
 ---
 
@@ -124,6 +125,9 @@ candidate, trained with one click against four same-impression negatives. **One 
 deviation:** the news encoder is a learned projection of our existing 384-dim multilingual
 sentence embeddings instead of word-level attention over title tokens. That is what makes
 it trainable on a GPU-less laptop; the user encoder, objective and scoring are the paper's.
+Both that substitution and D41's training budget push our absolute NRMS numbers below what
+a fully-trained, word-level NRMS reaches on a GPU — so this section is a *controlled
+ablation around a reproduced architecture*, not a claim about NRMS's ceiling.
 
 **The one principled change (D40): a time term.** NRMS has no time input at all. A small
 MLP over (log freshness, exposure share 1 h, exposure share 24 h) is added to the click
