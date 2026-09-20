@@ -103,9 +103,21 @@ def main() -> int:
 
     model_path = Path(args.model) if args.model else REPO_ROOT / "data" / "models" / f"lgbm_{ds}.txt"
     booster = lgb.Booster(model_file=str(model_path))
-    feats = assemble.FEATURES[ds]
-    if booster.feature_name() != feats:
-        raise SystemExit(f"model features {booster.feature_name()} != allowlist {feats}")
+    # The allowlist check stays a check (D34): the model may use EITHER sanctioned
+    # feature set - D34's base allowlist, or D42's base-plus-rack - and nothing
+    # else. Widened rather than removed, and matched exactly rather than as a
+    # subset, so a model trained on a column that was never allowlisted, or on
+    # the right columns in the wrong ORDER, is still refused. Order matters
+    # because `feature_matrix` builds the matrix positionally.
+    feats = booster.feature_name()
+    sanctioned = {"base": assemble.FEATURES[ds], "base+rack (D42)": assemble.ALL_FEATURES[ds]}
+    named = [k for k, v in sanctioned.items() if feats == v]
+    if not named:
+        raise SystemExit(
+            f"model features are not a sanctioned allowlist.\n  model: {feats}\n"
+            + "\n".join(f"  {k}: {v}" for k, v in sanctioned.items()))
+    print(f"{ds}: scoring with {model_path.name}, {len(feats)} features ({named[0]})",
+          flush=True)
 
     with open(REPO_ROOT / "configs" / f"{ds}.yaml") as f:
         test_root = REPO_ROOT / yaml.safe_load(f)["test_root"]

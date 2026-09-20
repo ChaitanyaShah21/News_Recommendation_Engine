@@ -2641,3 +2641,166 @@ server's `Content-Length` **before** being used, and the archive opened. This is
 2026-08-21 error-log entry being applied rather than re-learned: a `wget` of
 `ebnerd_demo.zip` exited 0 having silently dropped the last 311 KB, which is precisely
 where a zip's central directory lives.
+
+### D42a — the arm chosen, and the one metric that dissents
+
+**Date:** 2026-09-20 · **Decision:** Selected based on empirical benchmark evaluation.
+**Selected on validation; test chose nothing (D36).**
+
+Four arms per dataset — base, +pct, +z, +both — trained on train, early-stopped on val's
+nDCG@10, graded on val:
+
+| | trees | AUC | MRR | nDCG@5 | nDCG@10 |
+|---|---|---|---|---|---|
+| MIND base | **18** | 0.6545 | 0.3658 | 0.3489 | 0.4108 |
+| MIND +pct | 209 | **0.6614** | 0.3684 | 0.3521 | 0.4155 |
+| MIND +z | 120 | 0.6579 | 0.3682 | 0.3509 | 0.4150 |
+| MIND +both | 42 | 0.6573 | **0.3720** | **0.3545** | **0.4177** |
+| EB-NeRD base | 322 | 0.7295 | 0.5089 | 0.5790 | 0.6131 |
+| EB-NeRD +pct | 376 | 0.7500 | 0.5314 | 0.6001 | 0.6329 |
+| EB-NeRD +z | 443 | 0.7495 | 0.5276 | 0.5971 | 0.6300 |
+| EB-NeRD +both | **656** | **0.7566** | **0.5369** | **0.6060** | **0.6387** |
+
+**The tree counts are the most interesting column, and they are the diagnosis confirming
+itself.** MIND's base model early-stops at **18 trees** — it has extracted what the
+absolute features can express and further boosting gains nothing. Handed the same
+information expressed rack-relatively, the same algorithm on the same rows keeps improving
+to **209**. EB-NeRD moves 322 → 656 the same way. This is D36's planted-signal experiment
+reappearing in the production model: the signal was in the data all along and the tree
+could not cut at it.
+
+**Rule stated before reading the table, and applied identically to both datasets:** select
+on **validation nDCG@10**. It is the metric LambdaRank optimises and the metric early
+stopping already uses, so selecting on anything else would mean optimising one quantity and
+choosing by another. That rule picks **+both**, i.e. `gbdt.rack_features(ds)`.
+
+**+both wins 7 of the 8 metric/dataset combinations.** The dissent is recorded rather than
+smoothed over: **on MIND's AUC, +pct leads +both by 0.0041** (0.6614 vs 0.6573) — and AUC
+is exactly what both Codabench leaderboards grade. So the selection rule and the
+leaderboard metric disagree on one dataset, and choosing by objective-consistency may leave
+~0.004 of MIND leaderboard AUC on the table.
+
+**Why the rule was not changed to AUC after seeing that.** Because that is A1's Finding 5
+wearing different clothes — picking the criterion after seeing which criterion favours
+which arm. The dissent is reported, all four arms are carried into the test-split ablation,
+and if the retrospective decides the leaderboard metric should govern, that is a rule
+change to make deliberately and to apply to both datasets, not a number to reach for now.
+
+### D43a — word-level NRMS runs locally, two arms, not on Kaggle
+
+**Date:** 2026-09-20 · **Decision:** Selected based on empirical benchmark evaluation.
+**Prompted by Chaitanya asking whether the long runs belong on Kaggle.**
+
+**Measured first** (`time_wordnrms.py`, 3,000 MIND train impressions, 8 threads, quiet
+machine), both encoders over identical batches so the ratio survives machine state:
+
+| encoder | samples/s | params | min/epoch at D41's 60k | h per 3-epoch arm |
+|---|---|---|---|---|
+| sentence-level (D39) | 150 | 413,328 | 9.9 | 0.5 |
+| **word-level (D43)** | **11** | **10,995,692** | **138.7** | **6.9** |
+
+**Word-level is 14.0x slower per sample.** The harness calibrates: its sentence-level
+figure of ~9.9 min/epoch reproduces D41's independently recorded ~9 min, so the
+extrapolation is trustworthy rather than arithmetic.
+
+**Chosen:** D39's own specification — a **2-arm fidelity check on MIND** (baseline vs the
+D40 time term), ~14 h, run locally in the background. Not four arms: that is 27.7 h and
+starts consuming the week for an ablation Q3 already has from the sentence-level arms.
+
+**Kaggle was considered properly, because D29's objections no longer all hold.** D29
+rejected cloud partly on "re-downloading ~5 GB"; this job needs `words_mind.npz` (40 MB)
+plus MIND's feature tables and history — **~380 MB**. And D29's central claim, that only
+the embedding step benefits from a GPU, was true of A1 and is **not** true of A2: NRMS is
+55 news encodings per training sample, each self-attention over 20 tokens, which is exactly
+GPU-shaped. A T4 would plausibly cut 14 h to ~2 h.
+
+**Rejected anyway, on three grounds:**
+1. **Nobody can drive it.** There is no Kaggle token, CLI or credential on this machine, and
+   Chaitanya is sitting examinations. A 14 h unattended local run needs no one.
+2. **The confound, which is the real reason.** A GPU's actual advantage is not speed at
+   D41's subsample — it is training on far more data. But D41's reported arms use 60,000
+   impressions for 3 epochs, so a word-level arm trained on full data would confound
+   **architecture with training scale**, which is the one thing this comparison exists to
+   isolate. Using the GPU honestly means retraining every arm at the new scale, which moves
+   every Q3 number in §4 — while Chaitanya plans to write the report on the last day.
+3. **Reproduction.** `requirements.txt` pins CPU-only PyTorch (D29 already noted this is
+   wrong on Kaggle), so the cloud path is a second environment to document and keep true.
+
+**What this costs, stated plainly:** ~14 h of wall clock for a result that a GPU would give
+in ~2, and only 2 of the 4 arms. Reversible: if the retrospective wants the full-scale
+comparison, the code is dataset- and scale-agnostic and the upload is 380 MB.
+
+**Sequencing, which is what actually resolves the tension:** the CPU-light deliverables
+(feature rebuild, the D42a retrain, the D44 serving benchmark) run first and take a couple
+of hours; the serving benchmark in particular **needs a quiet machine**, because the
+2026-09-16 error-log entry records this laptop's absolute latencies moving 4.7x under
+contention. Word-level NRMS is launched last, overnight, when nothing else wants the cores.
+
+### D42b — outcome: the two slices A2 was losing on are the two the fix repairs
+
+**Date:** 2026-09-20 · measured, not decided
+
+The test-split result (`reports/rack_vs_base_{ds}_test.csv`, `extended_eval_*_rack.csv`):
+paired AUC **+0.0223 [0.0195, 0.0250]** on MIND and **+0.0202 [0.0194, 0.0210]** on
+EB-NeRD, with every interval on every metric on both datasets excluding zero. For scale,
+A2's entire gain over A1's semantic scorer on MIND had been **+0.0048**.
+
+**The part worth defending at a viva is the slice table, not the headline.** A1's Finding 5
+warns that choosing an improvement after seeing its result is self-deception. This change
+was chosen from a measurement (D36's planted signal, and §10's written prediction that
+absolute exposure "is learned in the inverse direction and damages head-exposure
+impressions") **before it was built** — so it made a falsifiable claim about *where* it
+should help. On MIND:
+
+| slice | base − semantic | rack − semantic | rack − base |
+|---|---|---|---|
+| head-exposure | **−0.0127** | **+0.0162** | **+0.0289** |
+| cold | **−0.0113** | **+0.0185** | **+0.0298** |
+| tail-exposure | +0.0352 | +0.0478 | +0.0126 |
+
+The two slices where the A2 model was **worse than A1's** are the two where the fix helps
+most, and by more than twice the tail-exposure gain. The prediction held.
+
+**A second §10 item closed for free, with its mechanism.** §10 listed cold users as a
+separate problem requiring "a separate path". They did not need one: a cold user's `cos_*`,
+`cat_share_*` and `bm25` are all null by construction, so the model has only freshness and
+exposure — precisely the columns rack normalisation repairs. Recorded because the *reason*
+is checkable, and "it also helped cold users" without it would be a coincidence.
+
+**No beyond-accuracy price.** MIND category diversity 0.7352 → 0.7426, EB-NeRD
+0.8029 → 0.8039; novelty and coverage move in the third decimal.
+
+### D44a — what the serving measurement actually supports, and what it does not
+
+**Date:** 2026-09-20 · measured, with one measurement discarded
+
+**MIND, clean run:** feature stage p50 **252.16 → 3.18 ms**, total p99 **509.67 → 30.53
+ms**, **19.5x at p50 and 16.7x at p99**. Q4's example SLA of p99 < 100 ms was **not met**
+by the shipped path and **is met** by this one. 1,000 QPS needs **15 cores instead of 278**;
+cost per 1,000 queries $0.003078 → $0.000162.
+
+**EB-NeRD, where a number was thrown away.** The first run gave a batch p99 of 22,397.72 ms
+— a 665x apparent speedup. It was not reported. Re-run unchanged as a control on a quiet
+machine (the 2026-09-16 procedure), the batch p99 came back **14,467.94 ms**: the heavy
+tail **reproduces**, its magnitude **does not**, moving 1.5x on identical code.
+
+**So no p99 speedup is quoted for EB-NeRD.** With a denominator that unstable, "665x" and
+"296x" are both available by choosing a run, and choosing would be the same error as
+choosing an improvement after seeing its result. What is quoted instead is the **p50
+speedup (33.9x, stable across runs)** and the **online path's own p99 (48.93 ms), which is
+under the SLA in both runs and on both datasets** — the quantity a served request actually
+experiences.
+
+**The tail was investigated rather than attributed.** It is *not* D42's: measured alone,
+`add_rack_features` on a 100-candidate rack is p50 11.09 ms, max 30.87 ms over 200 calls.
+cProfile over 30 real EB-NeRD requests puts **64% of the feature path inside
+`DataFrame.join`** — 15 joins per request, several against `ctx.sessions` at 1,219,746 rows.
+Those joins are what the online path replaces with array indexing, which is why its own
+distribution is tight (max 14.36 ms) while the batch path's is not. The tail's exact
+*magnitude* remains unexplained and is recorded as such in `SCALE_NOTES.md`.
+
+**A process note worth keeping.** Two separate background waiters in this session silently
+never fired because `pgrep -f <pattern>` matches the waiting shell's own command line. The
+first cost nothing; the second could have made a contended measurement look clean. Waits
+now use a sentinel file. This is the same family as the 2026-08-25 stale-`__pycache__`
+entry: tooling that fails by staying quiet.

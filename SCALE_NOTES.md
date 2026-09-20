@@ -442,3 +442,37 @@ profile gets older.
 exposure key array is the first thing that stops fitting. Tiers 2 and 3 are linear in users
 and candidates respectively and shard cleanly by user, so they scale horizontally. Tier 1
 does not, because every request may touch any article.
+
+### The EB-NeRD batch tail: reproduced, mechanism named, magnitude unexplained (2026-09-20)
+
+Benchmarking the serving path surfaced something the original Q4 run only hinted at. EB-NeRD's
+**batch** feature path has a pathological tail:
+
+| | p50 | p95 | p99 | max |
+|---|---|---|---|---|
+| run 1 | 454.42 | 7,054.38 | 22,397.72 | 27,286.46 |
+| run 2 (control, quiet machine) | 520.17 | 10,134.99 | 14,467.94 | 30,063.12 |
+| **online path, same requests** | **3.62** | **4.71** | **6.70** | **14.36** |
+
+The p50 is stable and matches the 439 ms recorded on 2026-09-19. The **tail reproduces but
+its magnitude swings 1.5x between runs on identical code**, which is why no p99 speedup
+ratio is quoted for EB-NeRD anywhere in the report.
+
+**Ruled out:** swap (471 pages in across an entire run, 9.8 GB available), and D42's rack
+normalisation (measured alone: p50 11.09 ms, max 30.87 ms on a 100-candidate rack).
+
+**Mechanism, as far as it is known:** cProfile over 30 real requests puts **64% of the
+feature path inside `DataFrame.join`** — about 15 joins per request, ~31 ms each, several
+against `ctx.sessions` at **1,219,746 rows** and the article and first-seen tables at
+125,541. Joining a 100-row frame against a 1.2M-row frame rebuilds the large side's hash
+table per request. That explains the *level*. It does not explain why a minority of requests
+take twenty times the median, and that remains open — most likely allocator or GC behaviour
+on a large heap, but this is a hypothesis and is labelled as one.
+
+**Why it matters beyond this benchmark.** The leaderboard driver uses the same `build_rows`
+over user-group chunks, where the join cost is amortised across ~215k impressions and is
+therefore invisible. The tail is a property of calling a batch-shaped builder with one
+request, not of the builder being wrong. **At 10x scale the join cost grows with the session
+and article tables, not with the request**, so the per-request path degrades while the batch
+path does not — which is the strongest argument in this document for keeping the two paths
+structurally separate rather than sharing one implementation.

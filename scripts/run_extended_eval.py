@@ -45,17 +45,31 @@ METRICS = ["AUC", "MRR", "nDCG@5", "nDCG@10"]
 SPLIT = "test"
 
 
-def system_scores(ft: pl.DataFrame, dataset: str) -> dict[str, np.ndarray]:
-    """Row-aligned scores for every system, on the SAME candidate lists."""
-    lgbm = pl.read_parquet(PROCESSED / "scores" / f"lgbm_{dataset}_{SPLIT}.parquet")
-    if lgbm.height != ft.height or not (lgbm["article_id"] == ft["article_id"]).all():
-        raise ValueError("saved scores are not row-aligned with the feature table")
-    return {
+def _saved(dataset: str, tag: str, ft: pl.DataFrame) -> np.ndarray:
+    saved = pl.read_parquet(PROCESSED / "scores" / f"lgbm_{dataset}{tag}_{SPLIT}.parquet")
+    if saved.height != ft.height or not (saved["article_id"] == ft["article_id"]).all():
+        raise ValueError(f"lgbm_{dataset}{tag} scores are not row-aligned with the "
+                         "feature table - rebuild them with run_reranker.py")
+    return saved["score"].to_numpy()
+
+
+def system_scores(ft: pl.DataFrame, dataset: str,
+                  extra_tags: tuple[str, ...] = ()) -> dict[str, np.ndarray]:
+    """Row-aligned scores for every system, on the SAME candidate lists.
+
+    `extra_tags` adds further saved models as their own systems - D42's rack arm
+    is `_rack`. Every system is graded on identical candidate lists, so the
+    paired bootstrap that follows is comparing orderings and nothing else.
+    """
+    out = {
         "random": np.random.default_rng(gbdt.SEED).random(ft.height),
         "bm25 (A1)": ft["bm25"].fill_null(0.0).to_numpy(),
         "semantic (A1)": ft["cos_inf"].fill_null(0.0).to_numpy(),
-        "lgbm (A2)": lgbm["score"].to_numpy(),
+        "lgbm (A2)": _saved(dataset, "", ft),
     }
+    for tag in extra_tags:
+        out[f"lgbm{tag} (A2)"] = _saved(dataset, tag, ft)
+    return out
 
 
 def top_k_rows(ft: pl.DataFrame, scores: np.ndarray, row_of: dict, k: int) -> list[np.ndarray]:
@@ -76,6 +90,10 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--datasets", nargs="+", default=["mind", "ebnerd"])
     ap.add_argument("--k", type=int, default=10)
+    ap.add_argument("--extra-models", nargs="*", default=[],
+                    help="further saved model tags to grade alongside, e.g. _rack (D42). "
+                         "They are scored on the same candidate lists as everything else.")
+    ap.add_argument("--tag", default="", help="suffix for the output filename")
     args = ap.parse_args()
 
     for ds in args.datasets:
@@ -110,7 +128,7 @@ def main() -> None:
         print(f"{ds}: {len(imp_ids):,} impressions; cold {cold.sum():,}, "
               f"head {head.sum():,}, tail {tail.sum():,}, mixed (neither) {n_mixed:,}", flush=True)
 
-        systems = system_scores(ft, ds)
+        systems = system_scores(ft, ds, tuple(args.extra_models))
         acc, lists = {}, {}
         for name, s in systems.items():
             _, per_imp, labels = gbdt.per_impression(ft, s)
@@ -151,7 +169,7 @@ def main() -> None:
             rows.append(r)
 
         out = pl.DataFrame(rows, infer_schema_length=None)
-        path = REPORTS / f"extended_eval_{ds}_{SPLIT}_k{args.k}.csv"
+        path = REPORTS / f"extended_eval_{ds}_{SPLIT}_k{args.k}{args.tag}.csv"
         out.write_csv(path)
         with pl.Config(tbl_rows=40, tbl_cols=12, tbl_width_chars=220):
             print(out.filter(pl.col("slice") == "all").select(

@@ -75,6 +75,10 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dataset", default="mind")
     ap.add_argument("--requests", type=int, default=300)
+    ap.add_argument("--model-tag", default="",
+                    help="which trained model to serve, e.g. _rack for D42's arm. The "
+                         "feature set is read back off the booster, so the benchmark "
+                         "always measures the columns that model actually uses.")
     ap.add_argument("--online", action="store_true",
                     help="D44: also measure the NumPy request path, in the same process "
                          "and over the same requests. Both paths are timed in one run on "
@@ -92,7 +96,8 @@ def main() -> None:
     t0 = time.perf_counter()
     ctx = assemble.build_context(ds, imps, arts, ids, emb)
     startup_ctx_s = time.perf_counter() - t0
-    booster = lgb.Booster(model_file=str(REPO_ROOT / "data" / "models" / f"lgbm_{ds}.txt"))
+    booster = lgb.Booster(
+        model_file=str(REPO_ROOT / "data" / "models" / f"lgbm_{ds}{args.model_tag}.txt"))
     feats = booster.feature_name()
 
     target = imps.filter(pl.col("split") == "test")
@@ -138,7 +143,8 @@ def main() -> None:
         "availability masks (1h buckets)": sum(m.nbytes for m in masks),
         "session table": sizeof(ctx.sessions) if ctx.sessions is not None else 0,
         "category map (rough)": sizeof(ctx.category),
-        "model (trees, on disk)": (REPO_ROOT / "data" / "models" / f"lgbm_{ds}.txt").stat().st_size,
+        "model (trees, on disk)": (REPO_ROOT / "data" / "models"
+                                   / f"lgbm_{ds}{args.model_tag}.txt").stat().st_size,
     }
 
     sample = target.sample(min(args.requests, target.height), seed=gbdt.SEED)
@@ -204,6 +210,7 @@ def main() -> None:
         served += 1
 
     out = {"dataset": ds, "k": K, "requests_measured": served,
+           "model": f"lgbm_{ds}{args.model_tag}", "n_features": len(feats),
            "startup_context_s": round(startup_ctx_s, 1),
            "startup_total_s": round(startup_total_s, 1),
            "footprint_bytes": footprint,
@@ -240,7 +247,7 @@ def main() -> None:
     out["meets_sla"] = bool(p99 < SLA_MS)
     out["cores_for_1000_qps"] = int(np.ceil(1000 / qps_per_core))
 
-    path = REPORTS / f"serving_benchmark_{ds}.json"
+    path = REPORTS / f"serving_benchmark_{ds}{args.model_tag}.json"
     path.write_text(json.dumps(out, indent=2))
     print(json.dumps({k: v for k, v in out.items() if k != "footprint_bytes"}, indent=2))
     print(f"footprint: {out['footprint_total_mb']} MB total")

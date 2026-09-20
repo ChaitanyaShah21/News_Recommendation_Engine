@@ -1,0 +1,105 @@
+{
+  "dataset": "ebnerd",
+  "k": 100,
+  "requests_measured": 300,
+  "model": "lgbm_ebnerd_rack",
+  "n_features": 34,
+  "startup_context_s": 26.0,
+  "startup_total_s": 30.3,
+  "footprint_bytes": {
+    "bm25 index (sparse doc-term)": 22257872,
+    "bm25 title-term matrix": 7259544,
+    "article embeddings": 192830976,
+    "user vectors (test split)": 60549120,
+    "exposure index (2 int64 arrays)": 122469328,
+    "first-seen table": 153076,
+    "availability masks (1h buckets)": 5900427,
+    "session table": 43667769,
+    "category map (rough)": 17826822,
+    "model (trees, on disk)": 3524140
+  },
+  "footprint_total_mb": 476.4,
+  "latency_ms": {
+    "retrieve": {
+      "n": 300,
+      "mean": 11.4,
+      "p50": 9.98,
+      "p95": 19.39,
+      "p99": 24.38,
+      "max": 54.08
+    },
+    "features": {
+      "n": 300,
+      "mean": 1824.15,
+      "p50": 520.17,
+      "p95": 10134.99,
+      "p99": 14467.94,
+      "max": 30063.12
+    },
+    "score": {
+      "n": 300,
+      "mean": 5.87,
+      "p50": 5.41,
+      "p95": 7.69,
+      "p99": 18.54,
+      "max": 42.26
+    },
+    "total": {
+      "n": 300,
+      "mean": 1841.42,
+      "p50": 538.91,
+      "p95": 10148.45,
+      "p99": 14481.16,
+      "max": 30074.65
+    },
+    "profile_part": {
+      "n": 300,
+      "mean": 85.11,
+      "p50": 85.14,
+      "p95": 94.5,
+      "p99": 103.04,
+      "max": 150.35
+    },
+    "online_features": {
+      "n": 300,
+      "mean": 3.7,
+      "p50": 3.62,
+      "p95": 4.71,
+      "p99": 6.7,
+      "max": 14.36
+    },
+    "online_score": {
+      "n": 300,
+      "mean": 2.37,
+      "p50": 1.93,
+      "p95": 2.89,
+      "p99": 17.67,
+      "max": 40.67
+    },
+    "online_total": {
+      "n": 300,
+      "mean": 17.47,
+      "p50": 15.89,
+      "p95": 25.97,
+      "p99": 48.93,
+      "max": 70.32
+    }
+  },
+  "sla_ms": 100.0,
+  "vcpu_hour_usd": 0.04,
+  "precomputable_share_of_features": 0.164,
+  "p99_if_profiles_precomputed_ms": 14378.1,
+  "online_index_build_s": 0.1,
+  "online_profiles_build_s": 49.8,
+  "online_users_profiled": 39420,
+  "online_speedup_p50": 33.9,
+  "online_speedup_p99": 296.0,
+  "online_meets_sla": true,
+  "online_qps_per_core": 57.2,
+  "online_cost_per_1000_queries_usd": 0.000194,
+  "online_cores_for_1000_qps": 18,
+  "qps_per_core": 0.5,
+  "cost_per_1000_queries_usd": 0.02046,
+  "meets_sla": false,
+  "cores_for_1000_qps": 1842
+}

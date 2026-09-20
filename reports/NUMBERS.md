@@ -449,3 +449,212 @@ head-exposure impressions.
 **Measurement hygiene, learned the hard way on 2026-09-16:** latency is machine- and
 day-dependent. Timings go in this ledger with the date they were taken, and a number that
 disagrees with a previous measurement gets explained before either is quoted.
+
+---
+
+## K. Extension week (2026-09-20 → 26), branch `a2-improvements`
+
+`main` is untouched and still carries every figure in sections A–J. Nothing below
+replaces a number above; it is a second, later measurement of a changed system.
+
+### K.1 D42 diagnosis: between-rack variance share (validation feature tables)
+
+Share of each feature's total variance sitting *between* impressions rather than within
+them — the part a single global tree threshold cannot resolve. Source:
+`diag_rack.py`, on `data/processed/features/{ds}_val.parquet`.
+
+| feature | MIND | EB-NeRD |
+|---|---|---|
+| `bm25` | **0.738** | **0.522** |
+| `exposure_share_1h` | 0.356 | 0.425 |
+| `exposure_share_24h` | 0.208 | 0.235 |
+| `cat_share_short/medium/inf` | 0.159 / 0.166 / 0.170 | 0.182 / 0.175 / 0.173 |
+| `cos_short/medium/inf` | 0.088 / 0.113 / 0.130 | 0.176 / 0.121 / 0.118 |
+| `freshness_hours` | 0.039 | 0.116 |
+| `hours_since_last_click`, `session_position`, `minutes_since_session_start`, `device_type` | n/a (MIND lacks them) | **1.000** (constant in 100.0% of racks) |
+
+Rack sizes: MIND min 2, p50 22, p90 91, max 295, mean 37.0 (51,205 val impressions);
+EB-NeRD min 5, p50 9, p90 23, max 97, mean 12.0 (435,677).
+
+### K.2 D42a arm selection (validation; test chose nothing)
+
+| | trees | AUC | MRR | nDCG@5 | nDCG@10 |
+|---|---|---|---|---|---|
+| MIND base | **18** | 0.6545 | 0.3658 | 0.3489 | 0.4108 |
+| MIND +pct | 209 | **0.6614** | 0.3684 | 0.3521 | 0.4155 |
+| MIND +z | 120 | 0.6579 | 0.3682 | 0.3509 | 0.4150 |
+| MIND +both *(selected)* | 42 | 0.6573 | **0.3720** | **0.3545** | **0.4177** |
+| EB-NeRD base | 322 | 0.7295 | 0.5089 | 0.5790 | 0.6131 |
+| EB-NeRD +pct | 376 | 0.7500 | 0.5314 | 0.6001 | 0.6329 |
+| EB-NeRD +z | 443 | 0.7495 | 0.5276 | 0.5971 | 0.6300 |
+| EB-NeRD +both *(selected)* | **656** | **0.7566** | **0.5369** | **0.6060** | **0.6387** |
+
+Selection rule, fixed before reading the table: validation nDCG@10 (LambdaRank's own
+objective and the early-stopping criterion), applied identically to both datasets.
+**+both wins 7 of 8.** The dissent: MIND AUC, where +pct leads by 0.0041 — and AUC is the
+leaderboard metric. Recorded, not smoothed (D42a).
+
+**Tree counts are the finding, not a footnote.** MIND's base arm early-stops at 18 trees;
+the same algorithm on the same rows, given the same information expressed rack-relatively,
+runs to 209. EB-NeRD goes 322 → 656.
+
+### K.3 Feature-table rebuild, verified as additive
+
+All six tables rebuilt with D42's columns. Row counts unchanged (MIND 5,843,444 /
+1,895,867 / 845,131; EB-NeRD 6,623,716 / 5,212,769 / 2,252,435), **every base column
+byte-identical**, exactly +20 columns each. Source: `verify_rebuild.py` against
+`data/processed/features_pre_rack/`. This is the check that caught the reused-MIND-id bug
+on 2026-09-19, so it is run rather than assumed.
+
+### K.4 D43a word-level NRMS cost (measured, quiet machine, 8 threads)
+
+| encoder | samples/s | parameters | min/epoch @ 60k impressions | h per 3-epoch arm |
+|---|---|---|---|---|
+| sentence-level (D39, shipped) | 150 | 413,328 | 9.9 | 0.5 |
+| word-level (D43) | 11 | 10,995,692 | 138.7 | 6.9 |
+
+**14.0x slower per sample.** Calibration: the sentence-level figure reproduces D41's
+independently recorded ~9 min/epoch, so the extrapolation is trustworthy.
+MIND title vocabulary 34,297 tokens, GloVe 6B.300d covers 31,863 (**92.9%**); title
+lengths mean 11.2, p50 11, p90 15, p99 21, max 50, so `TITLE_LEN = 20` keeps **98.9%**
+of titles whole.
+
+### K.5 D44 serving profile (cProfile, 20 real MIND requests, K = 100)
+
+| where the time goes | share |
+|---|---|
+| `PyLazyFrame.collect` — **66 collections per request** | 52% |
+| joins (65,238-row article tables, to decorate 100 candidates) | 23% |
+| per-user work (`build_decayed_user_vectors`, `build_queries`) | 13% |
+| `replace_strict` over a 65,238-entry category map | 12% |
+
+Taken under CPU contention, so the *attribution* is the reading; absolute latency is
+re-measured on a quiet machine (K.6).
+
+### K.6 D42a rack arm on the test split (paired against the shipped model)
+
+Both models scored the same impressions and the same candidate lists, so the difference is
+paired (Q3.4's method). Source: `reports/rack_vs_base_{ds}_test.csv`, via
+`scripts/compare_rack.py`. 1,000 resamples. MIND n = 21,947; EB-NeRD n = 186,721.
+
+| | MIND base | MIND +rack | paired Δ | EB-NeRD base | EB-NeRD +rack | paired Δ |
+|---|---|---|---|---|---|---|
+| AUC | 0.6144 | **0.6367** | **+0.0223 [0.0195, 0.0250]** | 0.7428 | **0.7629** | **+0.0202 [0.0194, 0.0210]** |
+| MRR | 0.3191 | 0.3411 | +0.0220 [0.0193, 0.0247] | 0.5219 | 0.5453 | +0.0234 [0.0222, 0.0245] |
+| nDCG@5 | 0.3000 | 0.3240 | +0.0240 [0.0215, 0.0265] | 0.5912 | 0.6137 | +0.0225 [0.0215, 0.0235] |
+| nDCG@10 | 0.3636 | 0.3840 | +0.0204 [0.0182, 0.0226] | 0.6250 | 0.6460 | +0.0210 [0.0202, 0.0219] |
+
+**Every interval excludes zero on every metric on both datasets.** Trees chosen by early
+stopping: MIND 23 (base 18), EB-NeRD 490 (base 322).
+
+**For scale:** A2's entire gain over A1's semantic scorer on MIND was +0.0048 AUC. This
+change adds **+0.0223** — roughly five times that — from normalising features the model
+already had, not from new information.
+
+**A run-to-run caveat, recorded rather than hidden.** The validation sweep and the shipped
+run order the rack columns differently (`rack_feature_names()` interleaves `_pct`/`_z` per
+feature; the sweep grouped all `_pct` then all `_z`). With `feature_fraction = 0.9` the
+column order changes which features each tree may sample, so MIND's chosen tree count moved
+from 42 to 23 between the two runs on identical data. The feature *set* — which is what was
+selected — is the same, and the test result above is the one that ships.
+
+### K.7 D44 serving path, measured on a quiet machine (2026-09-20, `_rack` model)
+
+Both paths timed **in the same process over the same 291 requests**, K = 100, single
+request at a time. The ratio is the quotable figure; absolute milliseconds carry their
+date, per the 2026-09-16 error-log entry.
+
+**MIND (30 features, 291 requests), latency in ms:**
+
+| stage | batch p50 | batch p99 | online p50 | online p99 |
+|---|---|---|---|---|
+| retrieve (shared) | 9.37 | 21.99 | 9.37 | 21.99 |
+| **features** | **252.16** | **495.29** | **3.18** | **5.06** |
+| score | 3.91 | 6.93 | 0.91 | 2.30 |
+| **total** | **266.30** | **509.67** | **13.65** | **30.53** |
+
+- **Speedup: 19.5x at p50, 16.7x at p99.** The feature stage alone is 79x.
+- **`p99 < 100 ms` SLA: batch NOT met (509.67), online MET (30.53).** Q4's example SLA was
+  unreachable before and is reachable now.
+- Throughput 3.6 → **68.4 q/s per core**; cores for 1,000 QPS **278 → 15**; cost per 1,000
+  queries **$0.003078 → $0.000162**.
+- Resident footprint unchanged at 283.1 MB (the arrays are views of the same state).
+
+**The nightly profile job, and the batching asymmetry it rests on.** 50,000 MIND user
+profiles build in **18.7 s = 0.37 ms/user**, against **~30 ms/user** measured for the same
+work done one request at a time (Q4, section I.3). An **81x** gap, because the expensive
+parts are matrix products that vectorise. `SCALE_NOTES.md` predicted this asymmetry before
+it was measured; this is the measurement. The corpus-tier index flattening costs 0.1 s.
+
+**What it buys and what it costs, stated together:** the per-user tier is work *moved*, not
+removed. A nightly job means a user whose history changed today is served yesterday's
+profile — a freshness-for-latency trade, on a dataset where 92.7% of clicks go to fresh
+articles.
+
+**EB-NeRD (34 features, 300 requests), and a measurement that had to be re-run.**
+
+The first EB-NeRD run reported a batch p99 of 22,397.72 ms, implying a 665x p99 speedup.
+That was not reported. It was re-run unchanged as a control on a quiet machine, per the
+2026-09-16 error-log entry:
+
+| | run 1 | run 2 (control) |
+|---|---|---|
+| batch `features` p50 | 454.42 | 520.17 |
+| batch `features` p95 | 7,054.38 | 10,134.99 |
+| batch `features` p99 | 22,397.72 | 14,467.94 |
+| batch `features` max | 27,286.46 | 30,063.12 |
+| **online `features` p50 / p99** | **3.69 / 8.27** | **3.62 / 6.70** |
+| **online `total` p50 / p99** | **15.83 / 33.67** | **15.89 / 48.93** |
+
+**The tail is real and reproduces; its magnitude does not.** So no p99 speedup ratio is
+quoted for EB-NeRD — the denominator moves by 1.5x between runs on identical code, which
+would let us report "665x" or "296x" by choosing a run. What is quoted:
+
+- **p50 speedup, stable across both runs: 33.9x** (MIND 19.5x).
+- **The online path's own p99: 48.93 ms** (MIND 30.53 ms). **Under the 100 ms SLA in both
+  runs, on both datasets**, which is the claim that matters for Q4.3.
+- Throughput 0.5 → **57.2 q/s per core**; cores for 1,000 QPS **1,842 → 18**; cost per
+  1,000 queries $0.018647 → **$0.000193**. Footprint 476.4 MB. 39,420 EB-NeRD profiles
+  build in 50.8 s (**1.29 ms/user**).
+
+**The tail is NOT caused by D42.** Measured in isolation, `add_rack_features` on a
+100-candidate rack is p50 11.09 ms, p99 23.43 ms, max 30.87 ms over 200 calls — steady, and
+three orders of magnitude below the tail. The mechanism is the batch builder's joins:
+cProfile over 30 real EB-NeRD requests puts **64% of the feature path in `DataFrame.join`**
+(15 joins per request, 31 ms each on average), several against `ctx.sessions` at
+**1,219,746 rows** and the article/first-seen tables at 125,541. Those joins are exactly
+what the online path replaces with array indexing, which is why its distribution is tight.
+
+### K.8 D42a sliced AUC (test split) — the diagnosis confirming itself
+
+| MIND slice | n | semantic (A1) | lgbm base | lgbm+rack | base − sem | **rack − sem** | rack − base |
+|---|---|---|---|---|---|---|---|
+| all | 21,947 | 0.6097 | 0.6144 | 0.6367 | +0.0047 | **+0.0270** | +0.0223 |
+| cold | 3,904 | 0.5642 | 0.5529 | 0.5827 | **−0.0113** | **+0.0185** | **+0.0298** |
+| warm | 18,043 | 0.6195 | 0.6277 | 0.6484 | +0.0082 | +0.0289 | +0.0207 |
+| head-exposure | 13,108 | 0.5955 | 0.5828 | 0.6117 | **−0.0127** | **+0.0162** | **+0.0289** |
+| tail-exposure | 5,917 | 0.6319 | 0.6671 | 0.6797 | +0.0352 | +0.0478 | +0.0126 |
+
+| EB-NeRD slice | n | semantic (A1) | lgbm base | lgbm+rack | rack − base |
+|---|---|---|---|---|---|
+| all | 186,721 | 0.5457 | 0.7428 | 0.7629 | +0.0201 |
+| cold | 680 | 0.5538 | 0.7348 | 0.7517 | +0.0169 |
+| warm | 186,041 | 0.5457 | 0.7428 | 0.7630 | +0.0202 |
+| head-exposure | 98,719 | 0.5565 | 0.7745 | 0.7876 | +0.0131 |
+| tail-exposure | 87,759 | 0.5334 | 0.7076 | 0.7357 | +0.0281 |
+
+**Both of MIND's slice regressions are eliminated**, and the size of the repair tracks the
+diagnosis: head-exposure **+0.0289** and cold **+0.0298** are the two largest rack-over-base
+gains, against **+0.0126** on tail-exposure, where the base model was already winning.
+§10 of the design note predicted that absolute exposure "is learned in the inverse direction
+and damages head-exposure impressions" **before this fix existed**; the fix repairs
+head-exposure hardest. That is a prediction that held, not a result hunted for afterwards.
+
+**Cold start was listed in §10 as a separate problem needing "a separate path".** It did not
+need one. The mechanism is visible in the feature semantics: a cold user's `cos_*`,
+`cat_share_*` and `bm25` are all null, so the model has only freshness and exposure to work
+with — and those are exactly the columns rack normalisation repairs.
+
+**Beyond-accuracy at K = 10 (base → rack):** MIND category diversity 0.7352 → 0.7426,
+novelty 17.6906 → 17.7043, coverage 0.0318 → 0.0311. EB-NeRD 0.8029 → 0.8039,
+19.0593 → 19.0271, coverage 0.0247 → 0.0256. No meaningful beyond-accuracy cost.

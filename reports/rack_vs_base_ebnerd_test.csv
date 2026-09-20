@@ -1,0 +1,4 @@
+dataset,system,n_impressions,AUC,AUC_lo,AUC_hi,MRR,MRR_lo,MRR_hi,nDCG@5,nDCG@5_lo,nDCG@5_hi,nDCG@10,nDCG@10_lo,nDCG@10_hi,AUC_excludes_zero,MRR_excludes_zero,nDCG@5_excludes_zero,nDCG@10_excludes_zero
+ebnerd,"lgbm (base, shipped)",186721,0.7428,0.7415,0.7441,0.5219,0.5203,0.5234,0.5912,0.5896,0.5927,0.625,0.6236,0.6263,,,,
+ebnerd,lgbm + rack (D42),186721,0.7629,0.7618,0.7642,0.5453,0.5438,0.5468,0.6137,0.6123,0.6153,0.646,0.6448,0.6473,,,,
+ebnerd,rack - base (paired),186721,0.0202,0.0194,0.021,0.0234,0.0222,0.0245,0.0225,0.0215,0.0235,0.021,0.0202,0.0219,true,true,true,true
