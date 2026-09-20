@@ -774,3 +774,55 @@ already guarantees the right answer.
 **Technical:** a mutation that cannot change behaviour. Example: removing the window
 clamp in `exposure_shares`, which the padded key span already covers. It is proven
 equivalent by removing *both* guards and seeing the test fail.
+
+### Rack
+**Plain:** the shelf of newspapers a reader is actually shown at one moment — not
+everything the shop stocks, just what is in front of them.
+**Technical:** the candidate list of a single impression (`article_ids_inview` in EB-NeRD,
+the `impressions` field in MIND). It is what both leaderboards ask us to order. Every
+metric we report is computed inside one rack and then averaged across racks, never across
+candidates from different impressions.
+
+### Rack-relative (within-impression) normalisation
+**Plain:** the shopkeeper does not care that this paper sold 400 copies; they care that it
+outsold the four papers next to it on the same shelf this morning.
+**Technical:** replacing (or, in D42, accompanying) a feature by its position *within its
+own impression's candidate list*. Two forms are used: `f_pct`, the percentile rank in
+[0, 1]; and `f_z`, `(f − rack mean) / rack standard deviation`. It exists because a
+gradient-boosted tree splits on absolute values, so a feature whose *level* drifts between
+impressions — measured: 73.8% of `bm25`'s variance on MIND is between-rack — gives the
+tree a threshold that means different things in different racks.
+
+### Between-rack variance share
+**Plain:** how much of a number's wobble is "this shelf is different from that shelf"
+rather than "this paper is different from the one beside it".
+**Technical:** the variance of the per-impression means, weighted by rack size, divided by
+the feature's total variance. Near 1 means almost all the signal is a level that shifts
+between impressions and almost none distinguishes candidates within one; near 0 means the
+opposite. It is the diagnostic that chose which features D42 normalises.
+
+### Percentile rank vs z-score
+**Plain:** "third of eight" versus "two lengths clear of the field".
+**Technical:** the percentile rank is scale-free and unaffected by an outlier, but discards
+magnitude — a runaway leader and a photo finish both give 1.0. The z-score keeps the
+margin but lets one extreme candidate compress everything else. Neither is strictly
+better, which is why D42 supplies both and lets the model choose.
+
+### Serving tier (corpus / per-user / per-request)
+**Plain:** things the shop owns, things it knows about you, and things it has to do while
+you stand at the counter.
+**Technical:** the three lifetimes D44 separates. **Corpus-lifetime** state (embeddings,
+indexes, first-seen times) is built once at start-up and shared by every request.
+**Per-user** state (decayed profile vectors, category shares, the BM25 query) depends only
+on click history, so it can be built in a nightly batch job — which trades profile
+freshness for request latency. **Per-request** work is what is left once those two are
+precomputed, and is the only part that belongs on the latency path.
+
+### Word-level vs sentence-level news encoder
+**Plain:** reading the headline word by word and deciding what each word means from its
+neighbours, versus being handed somebody else's one-line summary of it.
+**Technical:** NRMS's own news encoder runs multi-head self-attention over the title's
+GloVe word vectors and then pools them with additive attention, so a word is encoded in
+the context of the other words. D39 substituted a learned projection of a pre-pooled
+384-dim sentence embedding, which can rescale that summary but cannot revisit it. D43
+restores the paper's version.

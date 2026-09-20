@@ -52,6 +52,12 @@ def run(dataset: str, features: list[str], tag: str = "") -> pl.DataFrame:
     tr = pl.read_parquet(FEATS / f"{dataset}_train.parquet")
     va = pl.read_parquet(FEATS / f"{dataset}_val.parquet")
     te = pl.read_parquet(FEATS / f"{dataset}_test.parquet")
+    missing = [f for f in features if f not in tr.columns]
+    if missing:
+        raise SystemExit(
+            f"{dataset}: the cached feature tables lack {missing[:3]}"
+            f"{'...' if len(missing) > 3 else ''}. Rebuild them with "
+            f"scripts/build_feature_tables.py --datasets {dataset}")
     t0 = time.perf_counter()
     ranker = gbdt.train(tr, va, features)
     fit_s = time.perf_counter() - t0
@@ -97,10 +103,18 @@ def run(dataset: str, features: list[str], tag: str = "") -> pl.DataFrame:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--datasets", nargs="+", default=["mind", "ebnerd"])
+    ap.add_argument("--features", choices=["base", "rack"], default="base",
+                    help="base = D34's allowlist, the set every number reported up to "
+                         "2026-09-20 used. rack = that plus D42's within-impression "
+                         "normalisations. The arm was chosen on VALIDATION; this runs "
+                         "the chosen one on test, which chose nothing (D36).")
     args = ap.parse_args()
     for ds in args.datasets:
-        out = run(ds, gbdt.default_features(ds))
-        path = REPORTS / f"rerank_{ds}_test.csv"
+        feats = (gbdt.rack_features(ds) if args.features == "rack"
+                 else gbdt.default_features(ds))
+        tag = "_rack" if args.features == "rack" else ""
+        out = run(ds, feats, tag=tag)
+        path = REPORTS / f"rerank_{ds}_test{tag}.csv"
         out.write_csv(path)
         with pl.Config(tbl_cols=-1, tbl_width_chars=200, tbl_rows=20):
             print(out.select("system", *METRICS))

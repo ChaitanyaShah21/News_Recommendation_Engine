@@ -389,3 +389,56 @@ leaderboard chunk showed `searchsorted` taking 0.7 s per call over the 170M-key 
 re-measuring the same call on a quiet machine took **10 ms**. The difference was memory
 pressure (the run was at 10.6 GB with swap active), not the array. Recorded because A1's
 error log already contains one wrong conclusion drawn from a contended measurement.
+
+---
+
+## The serving path: the latency was never the arithmetic (D44, 2026-09-20)
+
+Q4 reported the shipped pipeline at p50 237 ms (MIND) / 452 ms (EB-NeRD) per request
+against an example SLA of p99 < 100 ms, with the feature stage taking 223 / 439 ms of it,
+and the design note answered with a projection rather than a build. Profiling it says the
+projection was aimed at the wrong thing.
+
+**cProfile over 20 real single-user MIND requests, K = 100:**
+
+| where the time goes | share |
+|---|---|
+| `PyLazyFrame.collect` — **66 separate Polars query collections per request** | 52% |
+| joins (against 65,238-row article tables, to decorate 100 candidates) | 23% |
+| `build_decayed_user_vectors` + `build_queries` (the per-user work) | 13% |
+| `replace_strict` over a 65,238-entry category map | 12% |
+
+Only the third line is work. The rest is a **batch pipeline being asked to serve one
+request**: `assemble.build_rows` is correctly shaped for the 206 million candidate rows of
+a leaderboard run, where a few milliseconds of fixed per-query cost vanish into minutes of
+real work. Served one impression at a time it pays that fixed cost 66 times over on tables
+of 100 rows.
+
+**This is the general lesson, and it is worth more than the number.** Batch throughput and
+serving latency are not the same optimisation, and a system tuned for one is usually
+mis-shaped for the other. The same code that made the leaderboard run finish overnight is
+what puts a 223 ms floor under a single request, and no amount of tuning inside that shape
+would have moved it — the fix is a different shape, not a faster one.
+
+**What D44 does about it.** Three tiers, and naming them is the design:
+
+1. **Corpus-lifetime** — embeddings, the BM25 index, the exposure index, earliest-evidence
+   times, categories. Already amortised; now additionally flattened into arrays indexed by
+   article row, so a lookup is `a[rows]` rather than a join.
+2. **Per-user, precomputable** — the three decayed profile vectors, three category-share
+   tables and the BM25 query. Measured at 13.5% (MIND) / 16.8% (EB-NeRD) of the feature
+   stage. These depend only on click history, never on the request.
+3. **Per-request** — gather, six dot products, two `searchsorted` pairs, the rack
+   normalisation. Pure NumPy.
+
+**What it does not fix, stated rather than buried.** Tier 2 is work *moved*, not work
+removed. A nightly profile job means a user whose history changed today is served from
+yesterday's profile until it reruns — a freshness-for-latency trade a real system has to
+make on purpose. On a dataset where 92.7% / 93.5% of clicks go to fresh articles, staleness
+is not a free lunch, and the honest framing is that the request path gets faster while the
+profile gets older.
+
+**At 10×,** tier 1 is the wall again and for the same reason as the batch path: the
+exposure key array is the first thing that stops fitting. Tiers 2 and 3 are linear in users
+and candidates respectively and shard cleanly by user, so they scale horizontally. Tier 1
+does not, because every request may touch any article.
