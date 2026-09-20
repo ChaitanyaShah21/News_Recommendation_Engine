@@ -389,6 +389,12 @@ resamples.
 | **+ both (pre-registered)** | 0.6144 | −0.0002 [−0.0011, 0.0008] | **0.6738** | **+0.0864 [0.0852, 0.0877]** |
 | MRR, + both | 0.3201 | +0.0053 [0.0038, 0.0067] | 0.4361 | +0.0628 [0.0613, 0.0642] |
 
+**Robustness check, 2026-09-20 (MIND only, 6 epochs, `nrms_ablation_mind_test_6epochs.csv`):**
+baseline 0.6180, + freshness 0.6192 (+0.0012 [0.0003, 0.0022]), + exposure 0.6160
+(−0.0020 [−0.0030, −0.0010]), + both 0.6180 (−0.0001 [−0.0011, 0.0009], spans zero; MRR
++0.0040 [0.0025, 0.0054]). Validation trace: 0.5967 / 0.6039 / 0.6107 / 0.6152 / 0.6180 /
+0.6187 — last gain +0.0007. Every arm gains ~+0.0035 and no conclusion changes.
+
 Validation trace (baseline): MIND 0.5967 → 0.6039 → 0.6107 (still rising at the cap);
 EB-NeRD 0.5818 → 0.5848 → 0.5823 (epoch 2 selected). Training cost after D41's subsample:
 ~9 min per MIND epoch, ~6 min per EB-NeRD epoch, ~30 min per arm including scoring.

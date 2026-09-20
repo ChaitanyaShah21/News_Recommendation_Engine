@@ -13,10 +13,9 @@
 **Summary.** Assignment 1 established that lexical and semantic retrieval contain no notion
 of time, while 92.7% (MIND) and 93.5% (EB-NeRD) of clicks fall on fresh articles. This
 system adds behavioural features and a trained re-ranker above that retrieval stage. On
-EB-NeRD the re-ranker raises test AUC from 0.5457 to 0.7428, and the Codabench leaderboard
-confirms the level at 0.7397 against Assignment 1's 0.5396. On MIND the same construction
-produces no useful gain (leaderboard 0.6181 against 0.6191), for reasons the slice analysis
-in §6 identifies and quantifies.
+EB-NeRD it raises test AUC from 0.5457 to 0.7428, and the leaderboard confirms the level at
+0.7397 against A1's 0.5396; on MIND it produces no useful gain (0.6181 against 0.6191), for
+reasons §6 quantifies.
 
 ## 1. System overview
 
@@ -175,12 +174,15 @@ a different model class**, since the LambdaRank importances also rank freshness 
 EB-NeRD and find exposure inverse on MIND. And it **bounds where the change transfers**:
 MIND, lacking publication and history timestamps, has less temporal signal to add.
 
-**Two limits.** The baseline's validation AUC was still rising at the final epoch, so these
-are undertrained figures; the comparison remains valid because every arm received an
-identical budget. And `+ freshness` alone outperforms the pre-registered `+ both` on both
-datasets — reported as an ablation observation rather than promoted to the headline result,
-since selecting the winning arm after seeing the outcome is the error recorded as Finding 5
-in this project's decision log.
+**Two limits, one of them tested.** The arms train for 3 epochs with validation AUC still
+rising, so absolute figures are undertrained. Re-running all four MIND arms for **6 epochs**
+(`nrms_ablation_mind_test_6epochs.csv`) lifts every arm ~+0.0035 AUC and changes no
+conclusion: baseline 0.6146 → 0.6180, `+ both` −0.0002 → −0.0001 (still spanning zero),
+`+ freshness` +0.0013 → +0.0012, `+ exposure` −0.0024 → −0.0020, with the last validation
+gain down to +0.0007. **The MIND null is a property of the dataset, not of the budget.**
+The table keeps the 3-epoch arms because EB-NeRD's share that budget. Second, `+ freshness`
+alone outperforms the pre-registered `+ both`; that is reported as an ablation observation
+rather than promoted after the fact, the error recorded as Finding 5 in the decision log.
 
 ## 5. Serving characteristics (Q4)
 
@@ -298,11 +300,11 @@ The basis for this section is a completed run at the largest scale available:
 locally in 155 and 26 minutes, at a 10.6 GB peak on an 11 GB machine.
 
 Three properties made that possible. The exploded candidate list is never materialised as
-strings: 206M (impression, article) pairs cost ~10 GB as strings and 1.4 GB as one sorted
-`int64` key per pair. A deep slice of a lazy frame is not free once a row index is attached
-— one 5,000-row chunk at offset 5M cost 297 s, resolved by writing the prepared frame to
-Parquet first. And work is partitioned by user rather than by file order, so per-user
-computation (~3.4 ms) happens once instead of once per chunk in which that user appears.
+strings (206M pairs cost ~10 GB as strings, 1.4 GB as one sorted `int64` key each). A deep
+slice of a lazy frame is not free once a row index is attached — one 5,000-row chunk at
+offset 5M cost 297 s, fixed by writing the prepared frame to Parquet first. And work is
+partitioned by user, so per-user computation (~3.4 ms) happens once rather than once per
+chunk containing that user.
 
 At 10× (135M impressions, ~2 G candidate rows) the constraints bind in this order:
 
@@ -340,18 +342,17 @@ week.
 ## 10. Limitations and next steps
 
 - **MIND requires rack-relative popularity features.** Absolute exposure is learned in the
-  inverse direction and damages head-exposure impressions. Normalising within an impression
-  (exposure ÷ rack maximum) removes the threshold ambiguity that gradient-boosted trees
-  cannot resolve, since they split on absolute values.
-- **Cold users need a separate path.** On MIND they lose 0.0113 AUC, because a cold user's
-  decayed-profile features are null and the remaining temporal features are weak.
-- **NRMS is undertrained and uses a substituted news encoder** (§4). A word-level encoder
-  with full-data GPU training would raise every arm.
+  inverse direction and damages head-exposure impressions; normalising within an impression
+  (exposure ÷ rack maximum) removes a threshold ambiguity trees cannot resolve.
+- **Cold users need a separate path**: on MIND they lose 0.0113 AUC, their decayed-profile
+  features being null while the remaining temporal features are weak.
+- **NRMS uses a substituted news encoder** (§4); a word-level encoder with full-data GPU
+  training would raise every arm.
 - **Online serving requires restructuring rather than tuning** (§5).
 
 ## 11. Reproduction and authorship
 
-`README.md` documents a one-command rebuild and the ordered scripts that regenerate every
-`reports/figures/`. The `codabench/` tooling is infrastructure for obtaining a score on a
-competition whose hosted workers were retired: the organisers' scoring program, hidden
-reference data and metrics are unmodified.
+`README.md` documents a one-command rebuild and the scripts that regenerate every table
+`reports/figures/`. The `codabench/` tooling exists to obtain a score on a competition
+whose hosted workers were retired; the organisers' scoring program, hidden reference data
+and metrics are unmodified.

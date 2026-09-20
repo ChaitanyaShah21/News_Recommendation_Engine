@@ -27,7 +27,7 @@ import argparse
 
 CSS_TEMPLATE = """
 @page { size: A4; margin: __MARGIN__; }
-body { font-family: "DejaVu Serif", Georgia, serif; font-size: __PT__pt; line-height: 1.22;
+body { font-family: "DejaVu Serif", Georgia, serif; font-size: __PT__pt; line-height: 1.18;
        color: #111; margin: 0; }
 h1 { font-size: 17pt; margin: 0 0 .15em; letter-spacing: -0.2px; }
 h2 { font-size: 11.5pt; margin: .62em 0 .26em; border-bottom: 1px solid #bbb;
@@ -35,7 +35,7 @@ h2 { font-size: 11.5pt; margin: .62em 0 .26em; border-bottom: 1px solid #bbb;
 h3 { font-size: 10.5pt; margin: .2em 0 .5em; font-weight: normal; color: #333;
      font-style: italic; }
 h1 + h3 { margin-bottom: .8em; }
-p  { margin: .28em 0; }
+p  { margin: .24em 0; }
 ul, ol { margin: .3em 0; padding-left: 1.2em; }
 li { margin: .15em 0; }
 code { font-family: "DejaVu Sans Mono", monospace; font-size: 8.6pt;
@@ -44,7 +44,7 @@ pre { background: #f7f7f7; padding: .45em .6em; font-size: 7.6pt; overflow: hidd
       white-space: pre;
       border-left: 2px solid #ddd; }
 pre code { background: none; padding: 0; }
-table { border-collapse: collapse; width: 100%; font-size: 8.6pt; margin: .35em 0; }
+table { border-collapse: collapse; width: 100%; font-size: 8.4pt; margin: .3em 0; }
 tr { page-break-inside: avoid; }
 th, td { border: 1px solid #bbb; padding: 1.8px 4px; text-align: left; }
 th { background: #efefef; }
