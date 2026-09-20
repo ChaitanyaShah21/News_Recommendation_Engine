@@ -39,6 +39,8 @@ import polars as pl
 import torch
 from torch import nn
 
+from newsrec.rank.words import PAD as PAD_ID
+
 SEED = 20260919
 HIST_LEN = 50
 NEG = 4
@@ -61,10 +63,63 @@ class AdditiveAttention(nn.Module):
         return (w * x).sum(1)                                       # (B, D)
 
 
-class NRMS(nn.Module):
-    def __init__(self, emb_dim: int, n_time: int = 0, dropout: float = 0.2):
+class WordNewsEncoder(nn.Module):
+    """The paper's news encoder, restored (D43): GloVe words -> self-attention
+    -> additive attention -> one news vector.
+
+    Takes a tensor of token ids with ANY leading shape - (B, L) for a batch of
+    titles, (B, L, C) for a user's history or an impression's candidates - and
+    returns the same leading shape with the last axis replaced by DIM. That is
+    what lets it drop straight into the existing model: `self.news` was already
+    called on a gathered (..., emb_dim) float tensor, and is now called on a
+    gathered (..., TITLE_LEN) integer one, with nothing else changed.
+
+    Why `padding_idx=0` matters twice. It freezes the <pad> row's gradient at
+    zero, so the padding vector cannot drift away from zero during training -
+    and the attention mask below independently refuses to attend to it. Either
+    alone would do; both together mean a bug in one is not silent.
+
+    The empty-title trap is the same one the user encoder already has for
+    users with no history: attention over an all-masked sequence is a softmax
+    over all -1e9, which is NaN, and a NaN propagates through the whole batch's
+    loss rather than affecting one row. MIND has no empty titles today - 0 of
+    65,238, measured - which is exactly why this needs a guard rather than a
+    comment, since the day one appears nothing would point here.
+    """
+
+    def __init__(self, embeddings: np.ndarray, dropout: float = 0.2):
         super().__init__()
-        self.news = nn.Sequential(nn.Linear(emb_dim, DIM), nn.Tanh(), nn.Dropout(dropout))
+        v, d = embeddings.shape
+        self.emb = nn.Embedding(v, d, padding_idx=PAD_ID)
+        with torch.no_grad():
+            self.emb.weight.copy_(torch.from_numpy(embeddings))
+            self.emb.weight[PAD_ID].zero_()
+        self.proj = nn.Linear(d, DIM)
+        self.attn = nn.MultiheadAttention(DIM, HEADS, dropout=dropout, batch_first=True)
+        self.pool = AdditiveAttention(DIM)
+        self.drop = nn.Dropout(dropout)
+
+    def forward(self, tokens: torch.Tensor) -> torch.Tensor:
+        lead, n = tokens.shape[:-1], tokens.shape[-1]
+        t = tokens.reshape(-1, n).long()                              # (N, T)
+        mask = t != PAD_ID
+        safe = mask.clone()
+        safe[~mask.any(1), 0] = True          # an all-padding title attends to slot 0
+        x = self.drop(self.proj(self.drop(self.emb(t))))              # (N, T, DIM)
+        z, _ = self.attn(x, x, x, key_padding_mask=~safe)
+        return self.pool(z, safe).reshape(*lead, DIM)                 # (..., DIM)
+
+
+class NRMS(nn.Module):
+    def __init__(self, emb_dim: int, n_time: int = 0, dropout: float = 0.2,
+                 word_embeddings: np.ndarray | None = None):
+        super().__init__()
+        # D39 option A: a projection of the frozen sentence embedding. D43
+        # option B: the paper's word-level encoder. Same signature either way -
+        # (..., input) -> (..., DIM) - so every line below is shared.
+        self.word_level = word_embeddings is not None
+        self.news = (WordNewsEncoder(word_embeddings, dropout) if self.word_level
+                     else nn.Sequential(nn.Linear(emb_dim, DIM), nn.Tanh(), nn.Dropout(dropout)))
         self.self_attn = nn.MultiheadAttention(DIM, HEADS, dropout=dropout, batch_first=True)
         self.pool = AdditiveAttention(DIM)
         self.n_time = n_time

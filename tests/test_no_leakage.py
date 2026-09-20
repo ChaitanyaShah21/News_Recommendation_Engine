@@ -401,6 +401,12 @@ def test_semantic_scores_do_not_change_when_the_labels_change():
 # LABEL BLINDNESS: shuffling the click labels must leave every feature
 # identical. The label column itself is the only thing allowed to move.
 #
+# D42's rack features read every OTHER candidate in the same impression. That is
+# not a leak and the two properties above prove it: those candidates are all
+# shown at the same instant T, they are the input to the request being served
+# (both leaderboards supply the list in full), and no label of any of them is
+# read. Future deletion cannot change them because a rack is one impression.
+#
 # Both run the real builder on real val data for BOTH datasets. EB-NeRD alone
 # is not enough: its freshness is min(published_time, first_seen), and
 # published_time is almost always the smaller, so a bug in first_seen only shows
@@ -432,6 +438,10 @@ def test_a2_features_are_unchanged_when_the_future_is_deleted(dataset):
 
     full = assemble.build_feature_table(dataset, early, imps, hist, arts, ids, emb)
     trunc = assemble.build_feature_table(dataset, early, past_only, hist, arts, ids, emb)
+    # The property is checked over the WHOLE table, so it covers D42's rack
+    # columns without naming them. Asserted here so that a refactor which
+    # dropped them would fail loudly rather than quietly narrowing the check.
+    assert set(assemble.RACK_FEATURES[dataset]) <= set(full.columns)
     assert full.height > 0 and full.equals(trunc), "a feature changed when the future was removed"
 
     # Teeth: the quarantined future feature must be caught by the same check.
@@ -454,4 +464,5 @@ def test_a2_features_are_blind_to_click_labels(dataset):
     a = assemble.build_feature_table(dataset, target, imps, hist, arts, ids, emb)
     b = assemble.build_feature_table(dataset, shuffled, imps_shuffled, hist, arts, ids, emb)
     assert not a["clicked"].equals(b["clicked"]), "the shuffle did not change the labels"
+    assert set(assemble.RACK_FEATURES[dataset]) <= set(a.columns)
     assert a.drop("clicked").equals(b.drop("clicked"))

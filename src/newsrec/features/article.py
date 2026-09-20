@@ -150,6 +150,21 @@ class ExposureIndex:
         means the caller passed the wrong context."""
         q_t = ((rows["timestamp"] - self.t0).dt.total_seconds()).to_numpy().astype(np.int64)
         q_a = np.fromiter((self.vocab.get(a, -1) for a in rows["article_id"]), np.int64, rows.height)
+        out = {"impression_id": rows["impression_id"], "article_id": rows["article_id"]}
+        for w, share in zip(self.windows_hours, self.shares_arrays(q_t, q_a, strict)):
+            out[f"exposure_share_{w}h"] = pl.Series(share).fill_nan(None)
+        return pl.DataFrame(out)
+
+    def shares_arrays(self, q_t: np.ndarray, q_a: np.ndarray,
+                      strict: bool = True) -> list[np.ndarray]:
+        """The numpy core of `shares`, taking seconds-since-t0 and vocabulary
+        rows directly. Split out for the serving path (D44), which has no
+        DataFrame to build and cannot afford to make one: a single request is
+        ~100 candidates, and Polars' fixed per-query cost dominates at that size.
+
+        `shares` is a thin wrapper over this, so both callers run the same
+        arithmetic and a test can require they agree.
+        """
         unseen = q_a < 0
         if unseen.any() and strict:
             raise ValueError("a candidate never appears in all_impressions - pass every split")
@@ -157,7 +172,7 @@ class ExposureIndex:
             raise ValueError("a row predates the whole context - its window cannot be read")
         q_a = np.where(unseen, 0, q_a)
 
-        out = {"impression_id": rows["impression_id"], "article_id": rows["article_id"]}
+        out_arrays = []
         for w in self.windows_hours:
             lo = np.maximum(q_t - w * 3600, 0)  # the clamp that keeps keys inside one article
             denom = (np.searchsorted(self.imp_t, q_t, "left")
@@ -165,6 +180,5 @@ class ExposureIndex:
             numer = (np.searchsorted(self.shown_key, q_a * self.span + q_t, "left")
                      - np.searchsorted(self.shown_key, q_a * self.span + lo, "left"))
             numer = np.where(unseen, 0, numer)
-            share = np.where(denom > 0, numer / np.maximum(denom, 1), np.nan)
-            out[f"exposure_share_{w}h"] = pl.Series(share).fill_nan(None)
-        return pl.DataFrame(out)
+            out_arrays.append(np.where(denom > 0, numer / np.maximum(denom, 1), np.nan))
+        return out_arrays

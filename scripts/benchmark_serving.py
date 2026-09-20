@@ -35,6 +35,7 @@ import lightgbm as lgb  # noqa: E402
 import numpy as np  # noqa: E402
 import polars as pl  # noqa: E402
 
+from newsrec import serving  # noqa: E402
 from newsrec.features import assemble  # noqa: E402
 from newsrec.features import history as hf  # noqa: E402
 from newsrec.retrieval import bm25_search  # noqa: E402
@@ -74,6 +75,12 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dataset", default="mind")
     ap.add_argument("--requests", type=int, default=300)
+    ap.add_argument("--online", action="store_true",
+                    help="D44: also measure the NumPy request path, in the same process "
+                         "and over the same requests. Both paths are timed in one run on "
+                         "purpose - the 2026-09-16 error-log entry records absolute "
+                         "milliseconds on this machine moving by up to 4.7x between dates, "
+                         "so only a side-by-side ratio is worth quoting.")
     args = ap.parse_args()
     ds = args.dataset
 
@@ -86,7 +93,7 @@ def main() -> None:
     ctx = assemble.build_context(ds, imps, arts, ids, emb)
     startup_ctx_s = time.perf_counter() - t0
     booster = lgb.Booster(model_file=str(REPO_ROOT / "data" / "models" / f"lgbm_{ds}.txt"))
-    feats = assemble.FEATURES[ds]
+    feats = booster.feature_name()
 
     target = imps.filter(pl.col("split") == "test")
     hist_split = hist.filter(pl.col("split") == "test")
@@ -96,6 +103,30 @@ def main() -> None:
     hist_of = dict(zip(hist_split["user_id"], hist_split["history_article_ids"].to_list()))
     _, bucket_id, masks = avail_mod.build_availability(imps, target, ids, "1h")
     startup_total_s = time.perf_counter() - t0
+
+    # D44's two extra startup costs, reported rather than hidden inside "startup":
+    # flattening the corpus state into arrays, and the nightly per-user profile
+    # job. The second is the one that matters - it is work MOVED off the request
+    # path, not work removed, so its batch cost is the price of the latency win.
+    online_index = profiles = None
+    if args.online:
+        t_i = time.perf_counter()
+        online_index = serving.ServingIndex.build(ctx)
+        index_build_s = time.perf_counter() - t_i
+        # `serving.features` emits every allowlisted column; the loaded model may
+        # have been trained on a subset (the base allowlist, or D42's rack set).
+        # Select by NAME rather than assuming the orders coincide - a silent
+        # column mis-alignment scores garbage without erroring.
+        missing = [f for f in feats if f not in online_index.features]
+        if missing:
+            raise SystemExit(f"model wants features the serving path does not build: {missing}")
+        keep = np.array([online_index.features.index(f) for f in feats], np.int64)
+        t_p = time.perf_counter()
+        profiles = serving.UserProfile.build_many(online_index, ctx, hist_split)
+        profiles_build_s = time.perf_counter() - t_p
+        print(f"online: index {index_build_s:.1f} s, "
+              f"{len(profiles):,} user profiles {profiles_build_s:.1f} s "
+              f"({1e3 * profiles_build_s / max(len(profiles), 1):.2f} ms/user)", flush=True)
 
     footprint = {
         "bm25 index (sparse doc-term)": sizeof(ctx.index.doc_term),
@@ -111,7 +142,8 @@ def main() -> None:
     }
 
     sample = target.sample(min(args.requests, target.height), seed=gbdt.SEED)
-    stage = {"retrieve": [], "features": [], "score": [], "total": [], "profile_part": []}
+    stage = {"retrieve": [], "features": [], "score": [], "total": [], "profile_part": [],
+             "online_features": [], "online_score": [], "online_total": []}
     served = 0
     for row in sample.iter_rows(named=True):
         u = row["user_id"]
@@ -149,6 +181,22 @@ def main() -> None:
         bm25_search.build_queries(one_hist, ctx.index, ctx.title_term, n_recent=hf.N_RECENT)
         stage["profile_part"].append((time.perf_counter() - t_p) * 1e3)
 
+        if args.online:
+            # Same request, same candidates, same model - only the data
+            # structures differ. Retrieval is shared, so it is added back in to
+            # keep "total" comparable between the two paths.
+            t_o = time.perf_counter()
+            X = serving.features(online_index, profiles.get(u),
+                                 [ids[r] for r in top], row["timestamp"],
+                                 {f: ft[f][0] for f in feats if f in ft.columns
+                                  and f not in assemble.FEATURES["mind"]})
+            t_of = time.perf_counter()
+            booster.predict(X[:, keep])
+            t_os = time.perf_counter()
+            stage["online_features"].append((t_of - t_o) * 1e3)
+            stage["online_score"].append((t_os - t_of) * 1e3)
+            stage["online_total"].append(((t_retr - t_req) + (t_os - t_o)) * 1e3)
+
         stage["retrieve"].append((t_retr - t_req) * 1e3)
         stage["features"].append((t_feat - t_retr) * 1e3)
         stage["score"].append((t_end - t_feat) * 1e3)
@@ -161,13 +209,26 @@ def main() -> None:
            "footprint_bytes": footprint,
            "footprint_total_mb": round(sum(footprint.values()) / 1e6, 1),
            "latency_ms": {k: {m: round(v, 2) for m, v in percentiles(x).items()}
-                          for k, x in stage.items()},
+                          for k, x in stage.items() if x},
            "sla_ms": SLA_MS, "vcpu_hour_usd": VCPU_HOUR_USD}
     prof = out["latency_ms"]["profile_part"]["p50"]
     out["precomputable_share_of_features"] = round(
         prof / out["latency_ms"]["features"]["p50"], 3)
     out["p99_if_profiles_precomputed_ms"] = round(
         out["latency_ms"]["total"]["p99"] - out["latency_ms"]["profile_part"]["p99"], 1)
+    if args.online:
+        out["online_index_build_s"] = round(index_build_s, 1)
+        out["online_profiles_build_s"] = round(profiles_build_s, 1)
+        out["online_users_profiled"] = len(profiles)
+        o = out["latency_ms"]["online_total"]
+        out["online_speedup_p50"] = round(out["latency_ms"]["total"]["p50"] / o["p50"], 1)
+        out["online_speedup_p99"] = round(out["latency_ms"]["total"]["p99"] / o["p99"], 1)
+        out["online_meets_sla"] = bool(o["p99"] < SLA_MS)
+        out["online_qps_per_core"] = round(1000.0 / o["mean"], 1)
+        out["online_cost_per_1000_queries_usd"] = round(
+            VCPU_HOUR_USD / 3600 * o["mean"], 6)
+        out["online_cores_for_1000_qps"] = int(np.ceil(1000 / (1000.0 / o["mean"])))
+
     p99 = out["latency_ms"]["total"]["p99"]
     mean = out["latency_ms"]["total"]["mean"]
     # Cost: one request occupies one core for `mean` ms, so a core serves

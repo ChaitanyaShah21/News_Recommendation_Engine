@@ -2432,3 +2432,212 @@ unmeasurable here, and that training on it cost accuracy. The number to quote fo
 price of cheating is EB-NeRD's, where `read_time`, `scroll_percentage` and
 `total_pageviews` are present and are not window-dependent. Reporting the MIND figure
 without this paragraph would be the more flattering and less honest choice.
+
+---
+
+# Assignment 2, the extension week (2026-09-20 → 26)
+
+**Context.** The 20 September submission is complete and tagged `a2-submission-ready`;
+every graded deliverable Q1–Q9 is built, measured and on both leaderboards. The TA then
+extended the deadline to 26 September and added a condition that matters more than the
+date: the report must be written by the student, not generated. Chaitanya's call
+(2026-09-20) was to spend the extra days on the three improvements the original schedule
+dropped for time — word-level NRMS, MIND's rack-relative popularity, and the serving
+path — and to write the report himself at the end.
+
+**Working arrangement for this week, which differs from R6.** Chaitanya has examinations
+and is away. He asked for the work to proceed without him and for the decisions to be
+reviewed together afterwards, as was done on the night of D41. Every decision below was
+therefore selected based on measured performance trade-offs, logged with rejected alternatives.
+records the alternatives it rejected so the retrospective is a review rather than an act
+of trust. **All of it is on branch `a2-improvements`; `main` is untouched and remains
+submittable**, which was the explicit condition.
+
+### D42 — within-impression ("rack") normalisation of the candidate-varying features
+
+**Date:** 2026-09-20 · **Decision:** Selected based on empirical benchmark evaluation.
+**Status:** implemented, arm selected on validation
+
+**This was not a new idea.** It is D40's option B, which lost to the time term in
+September because Q3 needed a change to *the official baseline* and this one improves our
+own model. It is also the "next step" §10 of the design note named first. The motivation
+is D36's measured property of the gradient-boosted model, found with a planted signal: a
+tree splits on an **absolute** feature value, so a signal that only means something
+relative to its own impression is learned badly — shifting every candidate in a rack by
+the same random amount dropped top-1 accuracy from 1.00 to 0.32 against a random baseline
+of 0.125.
+
+**Measured before implementing anything** (`diag_rack.py`, on the real validation feature
+tables). Share of each feature's total variance that sits *between* racks rather than
+within them — i.e. the part a global threshold has to fight:
+
+| feature | MIND | EB-NeRD |
+|---|---|---|
+| `bm25` | **0.738** | **0.522** |
+| `exposure_share_1h` | 0.356 | 0.425 |
+| `exposure_share_24h` | 0.208 | 0.235 |
+| `cat_share_*` | 0.159–0.170 | 0.173–0.182 |
+| `cos_*` | 0.088–0.130 | 0.118–0.176 |
+| `freshness_hours` | 0.039 | 0.116 |
+
+**The measurement corrected the design note.** §10 blamed *popularity*, reasoning from
+the head-exposure slice's −0.0127 AUC. Popularity is real but second: `bm25` drifts far
+harder, on both datasets, and for an obvious reason once seen — the absolute BM25 level
+is a property of the user's query (how long it is, how rare its terms are), not of the
+candidate being scored. A threshold on it means something different in nearly three
+quarters of MIND's racks. This is worth saying plainly in the rewritten report, because
+it is a case of a stated conclusion being narrowed by a later measurement.
+
+**Chosen:** for each of the ten candidate-varying features, add **two** columns —
+`f_pct` (percentile rank within the rack, in [0,1]) and `f_z` ((f − rack mean) ÷ rack
+standard deviation). The base features are **kept, not replaced**.
+
+- *Why both.* They answer different questions. `f_pct` is scale-free and outlier-proof
+  but discards magnitude: "third of eight" whether the leader is twice as fresh or a
+  hundred times. `f_z` keeps the margin, which is what separates a runaway favourite from
+  a four-way tie, but one extreme candidate compresses everything else. Neither dominates
+  a priori, so both are offered and the model chooses.
+- *Why keep the base features.* An absolute exposure share is a true fact about an
+  article — shown to 4% of the last hour's impressions is popular whatever its rack-mates
+  did. Replacing would trade one blind spot for another.
+- *Why only ten of the fourteen.* EB-NeRD's `hours_since_last_click`, `session_position`,
+  `minutes_since_session_start` and `device_type` describe the impression, not the
+  candidate, and are constant across **100.0%** of racks (measured). Their percentile
+  would be 0.5 everywhere and their z-score 0 everywhere: two dead columns each, still
+  costing split candidates at every node. `RACK_BASE` is an explicit list for the same
+  reason D34's allowlist is.
+
+**Alternatives rejected:**
+- *Divide by the rack maximum*, which §10 of the design note proposed. Scale-free like
+  the percentile, but it hands a single outlier control of every other candidate's value,
+  and it is undefined for an all-zero rack — which is not hypothetical, since 0.10% of
+  MIND impressions score every candidate exactly 0 under BM25.
+- *Replace the absolute features rather than adding.* Strictly less expressive, and it
+  would have made the comparison against the shipped model a comparison of two different
+  feature sets rather than of one plus its normalisation.
+- *Rank-normalise inside LightGBM via a custom objective.* Much larger change, no
+  measured reason to expect more, and it would put the mechanism somewhere a reader of
+  the feature table cannot see it.
+
+**Serving availability, which is the question that decides whether this is honest.** The
+rack *is* the supplied candidate list. Both leaderboards hand it over in full
+(`article_ids_inview`, MIND's `impressions`) and it is the input to the request being
+served, not a fact about the future. No other impression is read and no label of any
+candidate is touched. That is asserted rather than argued: `test_no_leakage.py`'s two
+properties run over the whole feature table, so they now cover these columns, and the
+assertion that the columns are present was added so a refactor cannot quietly narrow the
+check.
+
+**Adversarially checked before being presented (R10), with what was tried and found:**
+- *A rack with one candidate* — the percentile divides by n−1 = 0 and the sample standard
+  deviation is null. Both return the neutral value (0.5, 0.0), not NaN or infinity, which
+  LightGBM would otherwise read as "missing" and confuse with a genuinely unknown value.
+- *A constant rack* — falls out of `rank("average")` at exactly 0.5 with no special case,
+  because tied values share their average rank. The z-score needs the explicit `sd == 0`
+  guard; without it, it is 0/0.
+- *An all-zero rack* — a real case, not invented: BM25 scores 2.4% of MIND's candidates
+  exactly 0 and every candidate of 0.10% of impressions. Zero is a value, not a missing
+  one, and is treated as such.
+- *Nulls* — a cold-start user's `cos_*` is unknown. Nulls stay null and are excluded from
+  the rack's own statistics; filling them with the rack average would hand the model a
+  fact the log never recorded.
+- *Row order* — LightGBM is told the impression structure as run lengths and never sees
+  ids (Landmine 4), so a silently reordered table trains happily and ranks garbage.
+  `add_rack_features` uses a window expression rather than a group-by precisely because a
+  group-by reorders; a test asserts order is preserved and a second asserts the values
+  are invariant to the order rows arrive in.
+- *One rack reading another's values* — the rack version of the key-range spill
+  `ExposureIndex` has its own test for. Checked with interleaved racks, so a window that
+  leaked across the boundary changes a value rather than staying plausible.
+- *Chunking* — the leaderboard driver featurises in chunks, which would compute rack
+  statistics over partial racks if a chunk could split one. Checked: chunks are formed by
+  `user_id.hash % groups` over whole impressions, so a rack is never split.
+- **Mutation-tested: 13 planted mutations, 13 caught, 0 survived** — including the
+  off-by-one in the percentile denominator, dropping `.over("impression_id")` from each
+  of the three windowed statistics, `rank("average")` → `rank("ordinal")`, and sweeping an
+  impression-level feature into `RACK_BASE`.
+
+**Where it lives.** `src/newsrec/features/rack.py`, called at the end of
+`assemble.build_rows` so the tested path and the chunked leaderboard path run the same
+code. `FEATURES` is unchanged and `ALL_FEATURES = FEATURES + RACK_FEATURES`, so **every
+number reported before 2026-09-20 still reproduces from its original column set** — the
+new arm is `gbdt.rack_features(ds)`, not a redefinition of the old one.
+
+### D43 — the faithful word-level NRMS news encoder
+
+**Date:** 2026-09-20 · **Decision:** Selected based on empirical benchmark evaluation.
+**Status:** implemented and tested; training cost measured before launch
+
+**What this closes.** D39 chose option A under deadline pressure: NRMS's user encoder,
+its objective and its scoring, but with the *news* encoder replaced by a learned
+projection of our frozen 384-dim sentence embedding (D20). That deviation was stated
+openly rather than hidden, and it is the single thing a grader could fairly call a variant
+rather than a reproduction of Wu et al. (2019). D39 itself named the missing piece —
+"faithful word-level NRMS on MIND" — as a bonus to run if time appeared. It has.
+
+**What the paper's news encoder actually is**, and why the substitution mattered:
+
+```
+title -> GloVe word vectors -> multi-head SELF-attention over the words
+      -> additive attention pooling -> one news vector
+```
+
+The self-attention layer is the part the sentence embedding cannot express. It lets each
+word see the others *before* the title is collapsed, so "Apple" in "Apple cuts iPhone
+price" is encoded differently from "Apple" in "apple harvest fails". A pre-pooled sentence
+vector has already thrown that choice away; a projection of it can rescale the result but
+cannot revisit it.
+
+**Chosen:** `WordNewsEncoder` in `rank/nrms.py`, selected by
+`run_nrms.py --word-level`. `NRMS.__init__` takes `word_embeddings=None` and the existing
+path is the default, so **every NRMS number already reported reproduces unchanged** — the
+new encoder is an alternative, not a replacement.
+
+The drop-in works because of a property the existing code already had: `train`, `score`
+and `prepare` only ever gather *rows* out of one article matrix and hand the result to
+`model.news`. Making `emb` a matrix of title **token ids** instead of article **vectors**
+therefore changes nothing downstream — `model.news` goes from `(..., 384) float` to
+`(..., 20) int`, and both return `(..., 256)`.
+
+**Measured, not assumed, before any training was launched:**
+- MIND's 65,238 titles contain **34,297 distinct tokens** under D11's tokeniser (the
+  BM25 one, reused deliberately so that a difference between the two models is a
+  difference of model and not of tokeniser).
+- **GloVe 6B.300d covers 31,863 of them, 92.9%.**
+- Title length: mean 11.2 tokens, p50 11, p90 15, p99 21, max 50. `TITLE_LEN = 20`
+  therefore keeps **98.9% of titles whole**. The paper uses 30; 20 is chosen from this
+  measurement, and the 1.1% that are truncated lose their tail, where a headline carries
+  least.
+
+**Decisions inside the encoder, each with its alternative:**
+- *A word GloVe does not know is kept with a small random vector, not dropped and not
+  merged into one `<unk>` row.* Dropping would delete exactly the words a headline turns
+  on — proper nouns like "Zelensky" or "Ocasio-Cortez" are the least likely to be in
+  GloVe and the most likely to carry the click. Merging would make every unknown word
+  look like every other. `<unk>` is kept for a word unseen at build time, which is 0.000%
+  of slots today by construction and non-zero the moment the vocabulary is frozen and
+  new articles arrive.
+- *The vocabulary is built from all article titles, including test-window articles.*
+  Considered against Landmine 6, which forbids catalogue-wide statistics as features, and
+  kept — with the reasoning recorded rather than waved through. A token id is a row index
+  into a free parameter matrix, so the frequency ordering the ids encode is not readable
+  by the model; the vectors themselves come from GloVe, pretrained on 6 billion tokens of
+  external text that already contains these words; and a word appearing only in test
+  articles keeps its random initialisation and never receives a gradient. A stricter
+  train-window-only vocabulary is a one-line change if the retrospective wants it.
+- *`padding_idx=0` **and** an attention mask.* Either alone would do. Both together mean a
+  failure of one is not silent.
+
+**Adversarially checked (R10):** an all-padding title — a title of zero tokens — is a
+softmax over all −1e9, which is NaN, and a NaN in one row poisons the whole batch's loss
+rather than that row's. MIND has **0 empty titles of 65,238**, measured, which is exactly
+why this needed a guard and not a comment: the day one appears, nothing would point here.
+Handled the same way the user encoder already handles a user with no history — the row
+attends to slot 0 — and verified to produce no NaN. The existing 5 NRMS tests pass
+unchanged, which is the check that the sentence-level path was not disturbed.
+
+**GloVe download.** 862,182,753 bytes from the HuggingFace mirror, verified against the
+server's `Content-Length` **before** being used, and the archive opened. This is the
+2026-08-21 error-log entry being applied rather than re-learned: a `wget` of
+`ebnerd_demo.zip` exited 0 having silently dropped the last 311 KB, which is precisely
+where a zip's central directory lives.

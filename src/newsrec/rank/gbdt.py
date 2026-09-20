@@ -30,7 +30,7 @@ import lightgbm as lgb
 import numpy as np
 import polars as pl
 
-from newsrec.features.assemble import FEATURES, LABEL
+from newsrec.features.assemble import ALL_FEATURES, FEATURES, LABEL
 
 SEED = 20260919
 
@@ -142,4 +142,15 @@ def per_impression(ft: pl.DataFrame, scores: np.ndarray) -> tuple[list[str], lis
 
 
 def default_features(dataset: str) -> list[str]:
+    """D34's allowlist: the feature set every number reported up to 2026-09-20 used."""
     return list(FEATURES[dataset])
+
+
+def rack_features(dataset: str) -> list[str]:
+    """D42: the allowlist plus the within-impression normalisations.
+
+    Base features are KEPT. An absolute exposure share is a real fact about an
+    article - "shown to 4% of the last hour's impressions" is true whatever this
+    rack did - so the two answer different questions and the model is given both.
+    """
+    return list(ALL_FEATURES[dataset])

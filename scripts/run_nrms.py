@@ -60,6 +60,11 @@ def main() -> None:
     ap.add_argument("--datasets", nargs="+", default=["mind"])
     ap.add_argument("--epochs", type=int, default=4)
     ap.add_argument("--arms", nargs="+", default=list(ARMS))
+    ap.add_argument("--word-level", action="store_true",
+                    help="D43: the paper's word-level news encoder over GloVe title "
+                         "tokens, instead of D39's projection of the frozen sentence "
+                         "embedding. Needs scripts/build_word_vocab.py to have run.")
+    ap.add_argument("--tag", default="", help="suffix for the report and model filenames")
     ap.add_argument("--train-impressions", type=int, default=60_000,
                     help="seeded subsample of TRAIN impressions per arm (D41). 0 = all. "
                          "Measured 2026-09-19: a full MIND epoch is ~55 min on this CPU, "
@@ -69,7 +74,20 @@ def main() -> None:
 
     for ds in args.datasets:
         hist = pl.read_parquet(PROCESSED / "history.parquet").filter(pl.col("dataset") == ds)
-        ids, emb = semantic.load_article_embeddings(PROCESSED / "embeddings.parquet", dataset=ds)
+        word_emb = None
+        if args.word_level:
+            # `emb` stops being a matrix of article VECTORS and becomes a matrix of
+            # article TOKEN IDS. Every downstream line is indifferent: prepare(),
+            # train() and score() only ever gather rows out of it by article row and
+            # hand the result to model.news, which is now the word encoder (D43).
+            z = np.load(PROCESSED / f"words_{ds}.npz", allow_pickle=True)
+            ids, emb, word_emb = list(z["article_ids"]), z["tokens"], z["emb"]
+            print(f"{ds}: word-level, {word_emb.shape[0]:,} vocabulary x "
+                  f"{word_emb.shape[1]} dims, titles padded to {emb.shape[1]} tokens",
+                  flush=True)
+        else:
+            ids, emb = semantic.load_article_embeddings(PROCESSED / "embeddings.parquet",
+                                                        dataset=ds)
         row = {a: i for i, a in enumerate(ids)}
         h = {s: hist.filter(pl.col("split") == s) for s in ("train", "val", "test")}
         ft = {"train": sample_impressions(pl.read_parquet(FEATS / f"{ds}_train.parquet"),
@@ -85,7 +103,7 @@ def main() -> None:
             cols = ARMS[arm]
             b = {s: nrms.prepare(ft[s], h[s], row, time_cols=cols or None) for s in ft}
             torch.manual_seed(nrms.SEED)
-            model = nrms.NRMS(emb.shape[1], n_time=len(cols))
+            model = nrms.NRMS(emb.shape[1], n_time=len(cols), word_embeddings=word_emb)
             best, best_auc = None, -1.0
             t0 = time.perf_counter()
             for ep in range(args.epochs):
@@ -99,7 +117,7 @@ def main() -> None:
             model.load_state_dict(best)
             per[arm] = metrics.evaluate_impressions(
                 nrms.score(model, b["test"], emb), labels_of(b["test"])).as_dict()
-            torch.save(best, REPO_ROOT / "data" / "models" / f"nrms_{ds}_{arm}.pt")
+            torch.save(best, REPO_ROOT / "data" / "models" / f"nrms_{ds}_{arm}{args.tag}.pt")
 
         rows, idx = [], None
         for arm, vals in per.items():
@@ -121,7 +139,7 @@ def main() -> None:
                     r.update({m: round(iv.point, 4), f"{m}_lo": round(iv.low, 4), f"{m}_hi": round(iv.high, 4)})
                 rows.append(r)
         out = pl.DataFrame(rows)
-        path = REPORTS / f"nrms_ablation_{ds}_test.csv"
+        path = REPORTS / f"nrms_ablation_{ds}_test{args.tag}.csv"
         out.write_csv(path)
         with pl.Config(tbl_cols=-1, tbl_width_chars=200, tbl_rows=20):
             print(out.select("system", *[c for m in METRICS for c in (m, f"{m}_lo", f"{m}_hi")]))

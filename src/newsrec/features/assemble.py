@@ -23,6 +23,7 @@ import polars as pl
 
 from newsrec.features import article as af
 from newsrec.features import history as hf
+from newsrec.features import rack as rk
 from newsrec.features import session as sf
 from newsrec.retrieval import bm25, bm25_search
 
@@ -43,6 +44,16 @@ FEATURES = {
         "session_position", "minutes_since_session_start", "device_type",
     ],
 }
+#: D42: the within-impression normalisations of the candidate-varying features.
+#: They are built ALONGSIDE the base allowlist, never instead of it, and are a
+#: pure function of columns already on this table - so the allowlist argument of
+#: D34 still holds: a feature has to be named here to reach the model.
+RACK_FEATURES = {ds: rk.rack_feature_names() for ds in FEATURES}
+
+#: Everything `build_rows` emits. The base list stays untouched so that every
+#: number reported before 2026-09-20 reproduces from the same column set.
+ALL_FEATURES = {ds: FEATURES[ds] + RACK_FEATURES[ds] for ds in FEATURES}
+
 CHUNK = 500_000
 
 
@@ -184,6 +195,14 @@ def build_rows(ctx: Context, target: pl.DataFrame, history: pl.DataFrame,
         users = hf.build_decayed_user_vectors(hist, ctx.emb_ids, ctx.emb, h)
         u_idx = {u: i for i, u in enumerate(users.user_ids)}
         ui = np.fromiter((u_idx.get(u, -1) for u in rows["user_id"]), np.int64, rows.height)
+        # The -1 sentinel is clipped to 0 and masked away by `ui >= 0` - which
+        # works only while SOME user exists. With an entirely empty history
+        # table `has_query` has length 0, row 0 does not exist, and NumPy
+        # raises on the index before the `&` can mask anything (2026-09-20).
+        # Every user is then cold, and a cold user's cos_* is null.
+        if len(users.has_query) == 0:
+            cols[f"cos_{scale}"] = pl.Series([None] * rows.height, dtype=pl.Float32)
+            continue
         ok = (ui >= 0) & users.has_query[np.clip(ui, 0, None)]
         dots = _rowwise_dot(users.matrix, np.clip(ui, 0, None), ctx.emb, ai)
         cols[f"cos_{scale}"] = pl.Series(np.where(ok, dots, np.nan)).fill_nan(None)
@@ -193,9 +212,12 @@ def build_rows(ctx: Context, target: pl.DataFrame, history: pl.DataFrame,
     q_idx = {u: i for i, u in enumerate(queries.user_ids)}
     qi = np.fromiter((q_idx.get(u, -1) for u in rows["user_id"]), np.int64, rows.height)
     bi = np.fromiter((ctx.b_idx.get(a, -1) for a in rows["article_id"]), np.int64, rows.height)
-    okq = (qi >= 0) & (bi >= 0) & queries.has_query[np.clip(qi, 0, None)]
-    b = _sparse_rowwise_dot(queries.matrix, np.clip(qi, 0, None), ctx.index.doc_term, np.clip(bi, 0, None))
-    cols["bm25"] = pl.Series(np.where(okq, b, np.nan)).fill_nan(None)
+    if len(queries.has_query) == 0:      # same empty-table guard as cos_* above
+        cols["bm25"] = pl.Series([None] * rows.height, dtype=pl.Float32)
+    else:
+        okq = (qi >= 0) & (bi >= 0) & queries.has_query[np.clip(qi, 0, None)]
+        b = _sparse_rowwise_dot(queries.matrix, np.clip(qi, 0, None), ctx.index.doc_term, np.clip(bi, 0, None))
+        cols["bm25"] = pl.Series(np.where(okq, b, np.nan)).fill_nan(None)
 
     rows = rows.with_columns(**cols)
 
@@ -226,8 +248,14 @@ def build_rows(ctx: Context, target: pl.DataFrame, history: pl.DataFrame,
         rows = rows.join(hf.hours_since_last_click(target, hist), on="impression_id", how="left")
         rows = rows.join(ctx.sessions, on="impression_id", how="left")
 
-    out = rows.sort("_row").select(KEYS + [LABEL] + FEATURES[dataset])
-    expected = KEYS + [LABEL] + FEATURES[dataset]
+    # D42: computed last, from the finished columns, and strictly within each
+    # impression. `rows` is already sorted by `_row`, which is candidate order
+    # within impression order, so every rack is contiguous here - and
+    # `add_rack_features` uses a window rather than a group-by, so it stays so.
+    rows = rk.add_rack_features(rows.sort("_row"))
+
+    out = rows.select(KEYS + [LABEL] + ALL_FEATURES[dataset])
+    expected = KEYS + [LABEL] + ALL_FEATURES[dataset]
     assert out.columns == expected, f"allowlist violated: {out.columns} != {expected}"
     assert out.height == rows.height, "a join multiplied rows"
     return out
