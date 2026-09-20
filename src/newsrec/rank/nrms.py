@@ -31,6 +31,7 @@ to fresh articles. Off = the reproduced baseline; on = the improvement.
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 
 import numpy as np
@@ -182,7 +183,13 @@ def train(model: NRMS, b: Batchable, emb: np.ndarray, epochs: int = 3, batch: in
         S = training_samples(b, rng)
         S = S[rng.permutation(len(S))]
         total = 0.0
+        t_ep = time.perf_counter()
         for k in range(0, len(S), batch):
+            if k and k % (200 * batch) == 0:
+                done = k / len(S)
+                el = time.perf_counter() - t_ep
+                log(f"    {k:,}/{len(S):,} ({done:.0%}) {el:.0f}s elapsed, "
+                    f"~{el / done - el:.0f}s left this epoch")
             sb = S[k:k + batch]
             hist, hmask = _hist_tensors(E, b.hist_rows[b.user_of_imp[sb[:, 0]]])
             rows = sb[:, 1:]                                  # positive first

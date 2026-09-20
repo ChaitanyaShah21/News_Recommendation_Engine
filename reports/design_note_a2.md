@@ -9,12 +9,10 @@ every quoted figure traces to `reports/NUMBERS.md`.
 
 ## 1. What was built, and the one idea behind it
 
-A1 ended on a measured gap rather than a result: **BM25 and embedding retrieval contain no
-time term** — a structural fact about the two formulas, not a tuning failure — while
-**92.7% (MIND) / 93.5% (EB-NeRD) of real clicks are on fresh articles**. Three independent
-routes reached that conclusion, the sharpest being that train-window popularity predicts
-EB-NeRD clicks in the *wrong* direction (AUC 0.4647), because 86.9% of validation
-candidates were never clicked during training at all.
+A1 ended on a measured gap: **BM25 and embedding retrieval contain no time term** — a
+structural fact about both formulas — while **92.7% (MIND) / 93.5% (EB-NeRD) of real clicks
+are on fresh articles**. Three independent routes reached it, the sharpest being that
+train-window popularity predicts EB-NeRD clicks in the *wrong* direction (AUC 0.4647).
 
 A2 acts on it. The A1 scorers are not replaced; **they become features** of a trained
 re-ranker that also sees time:
@@ -68,13 +66,13 @@ realistic forward leaks were planted in production code and **all four were caug
 but only after extending the check to MIND, because on EB-NeRD `published_time` almost
 always wins the `min`, so the `first_seen` path is never exercised there.
 
-**Three landmines the data set for us, each measured rather than assumed.** EB-NeRD's
-article catalogue runs to 2023-07-11, a month past the test week (2,148 articles are
-published after the train week ends), so **no catalogue-wide statistic is ever a
-feature**. EB-NeRD's `session_id` is shared by more than one user (1,032 ids), so sessions
-are keyed **(user, session)**: keyed by id alone the longest "session" is 14 days, keyed
-properly it is 29 minutes. And 1,810 candidate rows (11 articles) are shown *before* their
-`published_time`, which is why freshness takes the earliest evidence of existence.
+**Three landmines, each measured rather than assumed.** EB-NeRD's catalogue runs a month
+past the test week (2,148 articles published after the train week ends), so **no
+catalogue-wide statistic is ever a feature**. Its `session_id` is shared by multiple users
+(1,032 ids), so sessions are keyed **(user, session)** — keyed by id alone the longest
+"session" is 14 days, keyed properly 29 minutes. And 1,810 candidate rows are shown
+*before* their `published_time`, which is why freshness takes the earliest evidence of
+existence.
 
 ## 3. Q2 — the trained re-ranker, before and after
 
@@ -97,16 +95,14 @@ ids and refuses non-contiguous input.
 | paired gain over *before* | +0.0048 **[0.0012, 0.0080]** | +0.0048 | +0.1971 **[0.1953, 0.1989]** | +0.1665 |
 
 Both AUC gains exclude zero. **The asymmetry is the finding, not a disappointment.**
-Feature importances say why: on EB-NeRD, freshness (38%) and exposure share (21% + 13%)
-carry 73% of the model's gain; on MIND, `cos_inf` leads at 27% and freshness at 20%, and
-the model saturates after 18 trees — validation nDCG@10 is flat from ~20 to 300 trees
-while training nDCG@10 climbs 0.396 → 0.457. Single-feature AUCs on MIND put freshness at
-0.534 and exposure at 0.533 against similarity's 0.610. **MIND ships no publication times
-and no history timestamps**, so its freshness must be inferred from first appearance in a
-sampled log, and its recency can only use list position. The time signal helps where the
-data records time and cannot help where it does not; that is a property of the datasets
-that the design had to absorb, and it is why the two datasets' decay features are not
-comparable to each other.
+Importances say why: on EB-NeRD freshness (38%) and exposure share (34%) carry 73% of the
+gain; on MIND `cos_inf` leads (27%) and the model saturates after 18 trees — validation
+nDCG@10 is flat from ~20 to 300 trees while training climbs 0.396 → 0.457. Single-feature
+AUCs on MIND put freshness at 0.534 and exposure at 0.533 against similarity's 0.610,
+because **MIND ships no publication times and no history timestamps**: its freshness is
+inferred from first appearance in a sampled log and its recency can only use list
+position. The time signal helps where the data records time, which is also why the two
+datasets' decay features are not comparable to each other.
 
 ### 3.2 Retrieved top-K (K = 100) — our own candidate generation
 
@@ -140,7 +136,38 @@ score, zero-initialised so training *starts* at exactly the baseline. The change
 chosen from A1's measurements **before** any NRMS result existed — A1's Finding 5 is that
 selecting a claim after seeing its result is a tautology in disguise.
 
-<!-- TBD: NRMS ablation table (4 arms, paired CI) from reports/nrms_ablation_*_test.csv -->
+**Ablation (Q3.3) and significance (Q3.4).** Four arms, identical in everything but the
+time inputs, each trained on the same seeded 60,000 impressions (D41) and evaluated on the
+whole test split. Paired bootstrap, 1,000 resamples, differences against the baseline.
+
+| Arm | MIND AUC | paired Δ | EB-NeRD AUC | paired Δ |
+|---|---|---|---|---|
+| nrms (reproduced baseline) | 0.6146 | — | 0.5874 | — |
+| + freshness | 0.6159 | +0.0013 [0.0004, 0.0022] | 0.7014 | +0.1141 [0.1126, 0.1155] |
+| + exposure share | 0.6122 | **−0.0024** [−0.0032, −0.0014] | 0.6244 | +0.0370 [0.0359, 0.0380] |
+| **+ both — the pre-registered change** | 0.6144 | −0.0002 [−0.0011, 0.0008] | **0.6738** | **+0.0864 [0.0852, 0.0877]** |
+
+**On EB-NeRD the claim holds with room to spare: +0.0864 AUC, CI clear of zero**, and
++0.0628 MRR. **On MIND it does not**: the pre-registered arm is indistinguishable from the
+baseline on AUC (−0.0002, interval straddling zero) though it does lift MRR
+(+0.0053 [0.0038, 0.0067]).
+
+What the ablation buys over a single "improved" number: it **localises** the gain
+(freshness carries it; exposure alone adds +0.037 and *subtracts* when combined, the two
+being correlated — a fresh article is also a heavily-pushed one); it **reproduces the Q2
+ordering in a different model class** (LambdaRank importances also rank freshness first on
+EB-NeRD and find exposure inverse on MIND), which is the kind of agreement that makes a
+finding believable; and it **says where the change does not transfer, and why** — MIND has
+no publication times and no history timestamps, so there is less time signal to add.
+
+**Two limits we state rather than let a reader discover.** The baseline is trained on
+60,000 impressions for 3 epochs and its validation AUC was **still rising at the last
+epoch**, so these are *undertrained* NRMS numbers — the ablation is valid because every arm
+has the same budget, but the absolute levels understate a fully-trained NRMS. And
+`+ freshness` beats the pre-registered `+ both` on both datasets; we report that as an
+ablation observation rather than promoting it to the headline after the fact, because
+choosing the winner after seeing the results is precisely the error A1's Finding 5
+records.
 
 ## 5. Q4 — serving: memory, p99, and cost per 1,000 queries
 
@@ -162,15 +189,13 @@ a conclusion that had to be withdrawn after being taken on a contended machine.
 | cores for 1,000 QPS | 239 | 689 |
 | **p99 < 100 ms SLA** | **not met** | **not met** |
 
-**Little's law as a consistency check.** With one request in flight, X ≤ 1/R: MIND's
-R = 0.237 s gives X ≤ 4.2 q/s, which is exactly the measured per-core throughput. The
-model is therefore internally consistent, and the only way past 4.2 q/s per core is to cut
-R or add concurrency.
+**Little's law check.** With one request in flight X ≤ 1/R: MIND's R = 0.237 s gives
+X ≤ 4.2 q/s, exactly the measured per-core throughput — so the only way past it is to cut R
+or add concurrency.
 
-**We fail the SLA, and the reason is architectural rather than algorithmic.** Stage 1
-(9 ms) and stage 3 (3–4 ms) are comfortably inside budget. **Feature assembly is 93–97% of
-the request**, and the honest diagnosis is that we are calling a *batch* builder once per
-request:
+**We fail the SLA for an architectural reason, not an algorithmic one.** Stage 1 (9 ms) and
+stage 3 (3–4 ms) are inside budget; **feature assembly is 93–97% of the request**, because
+we call a *batch* builder once per request:
 
 - Only **13.5% (MIND) / 16.8% (EB-NeRD)** of that stage is per-user profile work — three
   decayed profiles, three category-share tables, the BM25 query — measured separately. So
@@ -181,19 +206,14 @@ request:
   question. The same code processes **~11,500 rows/s in bulk** (2.25M rows in 195 s) and
   **~450 rows/s one request at a time** — a ~26× penalty that is all overhead.
 
-**What it would take to meet p99 < 100 ms** (a projection from the measurements above, not
-a measurement): precompute user profiles into a key-value store (−30 ms), replace the
-per-request joins with array lookups keyed by article row (the join targets are all static
-within an hour), and cache article-level features by (article, hour) — the same structure
-§8 wants at 10×. Stages 1 and 3 already sum to ~13 ms, so a feature lookup path of ~20 ms
-would put p99 near 40 ms and the cost per 1,000 queries near $0.0003. **We did not build
-that**, and saying so is more useful than quoting a number we did not measure.
-
-**Where the money actually goes at our scale.** The leaderboard run is the batch case and
-it is cheap: 206M candidate rows featurised and scored in 155 min on one machine, ~22,000
-rows/s, i.e. the whole 13.5M-impression test set for well under a dollar of compute. Our
-system is a strong batch scorer and a weak online one, which is the correct thing to know
-about it.
+**What would meet p99 < 100 ms** (a projection, not a measurement): precompute user
+profiles into a key-value store (−30 ms), replace per-request joins with array lookups
+keyed by article row (the targets are static within an hour), and cache article features by
+(article, hour) — the structure §8 also wants at 10×. Stages 1 and 3 sum to ~13 ms, so a
+~20 ms lookup path puts p99 near 40 ms and cost near $0.0003 per 1,000. **We did not build
+it**, and saying so beats quoting a number we did not measure. In batch the same system is
+cheap and fast: 206M rows scored in 155 min, ~22,000 rows/s. It is a strong batch scorer
+and a weak online one.
 
 ## 6. Q5 — extended evaluation, sliced
 
@@ -232,10 +252,9 @@ Three readings we would defend:
    rack-relative rather than absolute popularity features — the improvement we would make
    next, and the one §4's GBDT property predicts.
 3. **The re-ranker is not free on diversity.** On MIND it trades category diversity
-   (0.817 → 0.735) for novelty and coverage; on EB-NeRD it costs coverage
-   (0.0260 → 0.0247) while raising novelty. Coverage is reported **without** a CI (D27):
-   the bootstrap is biased downward for a union statistic, and the raw spread is carried in
-   the CSV under its own column names instead.
+   (0.817 → 0.735) for novelty and coverage; on EB-NeRD it costs coverage (0.0260 → 0.0247)
+   while raising novelty. Coverage carries no CI (D27): the bootstrap is biased downward for
+   a union statistic, so the raw spread sits in the CSV under its own column names.
 
 ## 7. Q9 — anti-gaming: leakage test, and the price of a serving-time feature
 
@@ -263,15 +282,12 @@ allowlist plus everything in `features/unavailable.py` (`read_time`,
 honest behavioural features bought (+0.197).** The two columns that carry it are
 `total_pageviews` (17% of the leaky model's gain) and `future_exposure_share_24h` (16%).
 
-**`read_time` and `scroll_percentage` — the two features the schema most invites you to
-misuse — turn out to be inert here, and the reason is structural.** EB-NeRD records dwell
-and scroll **per impression**, not per candidate, so they take the same value for every
-candidate in a rack. A ranking objective only ever compares candidates *within* a rack, so
-a rack-constant feature cannot change any ordering; neither reaches the leaky model's top
-five. That is worth stating because it cuts against the intuition that the most obviously
-post-hoc field is the most dangerous one: **the dangerous leak is the one that varies per
-candidate**, which is why `total_pageviews` (a per-article whole-dataset aggregate) is the
-biggest offender in this table.
+**`read_time` and `scroll_percentage` — the fields the schema most invites you to misuse —
+are inert here, for a structural reason.** EB-NeRD records them **per impression**, so they
+are constant across a rack, and a ranking objective only compares candidates *within* a
+rack; neither reaches the leaky model's top five. **The dangerous leak is the one that
+varies per candidate**, which is why `total_pageviews` — a per-article whole-dataset
+aggregate — is the biggest offender here.
 
 **Cheating made MIND worse, and the reason is mechanical, not moral.** MIND ships no dwell
 or pageview fields, so the only quarantined column with data is the forward exposure
@@ -288,19 +304,13 @@ The honest basis for this section is that we **already ran the largest thing we 
 locally, in **155 min** and **26 min**, at a 10.6 GB peak on an 11 GB machine. So what
 follows extrapolates from a measured run rather than from an estimate.
 
-**Three things that made the current scale run, each a lesson about the next one.**
-
-1. *Never materialise the exploded candidate list as strings.* 206M (impression, article)
-   pairs cost ~10 GB as Polars strings and 1.4 GB as one sorted `int64` key per pair;
-   `searchsorted` over that array answers the popularity question in 40 ms per 59k rows.
-2. *A deep slice of a lazy frame is not free once a row index is attached.* One 5,000-row
-   chunk at offset 5M cost **297 s**, because the row index forces a scan of everything
-   before it. Writing the prepared frame to Parquet first made it instant — the same class
-   of error as assuming an operation is cheap because a *similar* one measured cheap.
-3. *Partition by user, not by file order.* Per-user work (three decayed profiles, category
-   shares, the BM25 query) costs ~3.4 ms and was being repeated in every chunk a user
-   appeared in. Hashing users into 64 groups pays it once: 2.7 min per 215k-impression
-   group.
+**Three things that made the current scale run.** (1) *Never materialise the exploded
+candidate list as strings*: 206M (impression, article) pairs cost ~10 GB as strings and
+1.4 GB as one sorted `int64` key per pair. (2) *A deep slice of a lazy frame is not free
+once a row index is attached*: one 5,000-row chunk at offset 5M cost **297 s**, fixed by
+writing the prepared frame to Parquet first. (3) *Partition by user, not by file order*:
+per-user work (~3.4 ms) was being repeated in every chunk a user appeared in; hashing users
+into 64 groups pays it once, 2.7 min per 215k-impression group.
 
 **At 10× (135M impressions, ~2 G candidate rows), in the order things break:**
 

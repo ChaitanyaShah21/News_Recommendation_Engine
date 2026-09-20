@@ -60,6 +60,10 @@ def main() -> None:
     ap.add_argument("--datasets", nargs="+", default=["mind"])
     ap.add_argument("--epochs", type=int, default=4)
     ap.add_argument("--arms", nargs="+", default=list(ARMS))
+    ap.add_argument("--train-impressions", type=int, default=60_000,
+                    help="seeded subsample of TRAIN impressions per arm (D41). 0 = all. "
+                         "Measured 2026-09-19: a full MIND epoch is ~55 min on this CPU, "
+                         "so 4 arms x 3 epochs would not fit the night.")
     args = ap.parse_args()
     torch.set_num_threads(8)
 
@@ -68,10 +72,14 @@ def main() -> None:
         ids, emb = semantic.load_article_embeddings(PROCESSED / "embeddings.parquet", dataset=ds)
         row = {a: i for i, a in enumerate(ids)}
         h = {s: hist.filter(pl.col("split") == s) for s in ("train", "val", "test")}
-        ft = {"train": pl.read_parquet(FEATS / f"{ds}_train.parquet"),
+        ft = {"train": sample_impressions(pl.read_parquet(FEATS / f"{ds}_train.parquet"),
+                                         args.train_impressions or 10**9),
               "val": sample_impressions(pl.read_parquet(FEATS / f"{ds}_val.parquet"), VAL_SAMPLE),
               "test": pl.read_parquet(FEATS / f"{ds}_test.parquet")}
 
+        print(f"{ds}: train {ft['train']['impression_id'].n_unique():,} impressions / "
+              f"{ft['train'].height:,} rows; val {ft['val']['impression_id'].n_unique():,}; "
+              f"test {ft['test']['impression_id'].n_unique():,}", flush=True)
         per: dict[str, dict[str, np.ndarray]] = {}
         for arm in args.arms:
             cols = ARMS[arm]

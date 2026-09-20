@@ -27,23 +27,23 @@ import argparse
 
 CSS_TEMPLATE = """
 @page { size: A4; margin: __MARGIN__; }
-body { font-family: "DejaVu Serif", Georgia, serif; font-size: __PT__pt; line-height: 1.32;
+body { font-family: "DejaVu Serif", Georgia, serif; font-size: __PT__pt; line-height: 1.22;
        color: #111; margin: 0; }
 h1 { font-size: 16pt; margin: 0 0 .4em; }
-h2 { font-size: 11.5pt; margin: .85em 0 .3em; border-bottom: 1px solid #ccc;
+h2 { font-size: 11.5pt; margin: .55em 0 .22em; border-bottom: 1px solid #ccc;
      padding-bottom: 2px; }
-h3 { font-size: 10pt; margin: .7em 0 .25em; }
-p  { margin: .36em 0; }
-ul, ol { margin: .4em 0; padding-left: 1.3em; }
+h3 { font-size: 10pt; margin: .5em 0 .2em; }
+p  { margin: .28em 0; }
+ul, ol { margin: .3em 0; padding-left: 1.2em; }
 li { margin: .15em 0; }
 code { font-family: "DejaVu Sans Mono", monospace; font-size: 8.6pt;
        background: #f4f4f4; padding: 0 2px; }
 pre { background: #f6f6f6; padding: .5em .7em; font-size: 8.4pt; overflow-x: auto;
       border-left: 2px solid #ddd; }
 pre code { background: none; padding: 0; }
-table { border-collapse: collapse; width: 100%; font-size: 8.4pt; margin: .4em 0;
+table { border-collapse: collapse; width: 100%; font-size: 8.6pt; margin: .3em 0;
         page-break-inside: avoid; }
-th, td { border: 1px solid #bbb; padding: 2.5px 5px; text-align: left; }
+th, td { border: 1px solid #bbb; padding: 1.8px 4px; text-align: left; }
 th { background: #efefef; }
 img { max-width: 76%; height: auto; display: block; margin: .4em auto;
       page-break-inside: avoid; }

@@ -373,6 +373,26 @@ feature 0.075 → 0.241. EB-NeRD's leaky gain is carried by `total_pageviews` (1
 `future_exposure_share_24h` (16%); `read_time` and `scroll_percentage` are rack-constant
 and therefore inert under a ranking objective.
 
+
+### I.4 Phase A4: Q3, NRMS reproduced then beaten (2026-09-20, local test split)
+
+Four arms per dataset, identical but for the candidate time inputs, each trained on the
+same seeded 60,000 impressions for 3 epochs (D41), epoch chosen by val AUC on 30,000
+sampled val impressions, evaluated on the **whole** test split. Paired bootstrap, 1,000
+resamples.
+
+| Arm | MIND AUC | paired Δ vs baseline | EB-NeRD AUC | paired Δ vs baseline |
+|---|---|---|---|---|
+| nrms (baseline) | 0.6146 [0.6109, 0.6184] | — | 0.5874 [0.5860, 0.5887] | — |
+| + freshness | 0.6159 | +0.0013 [0.0004, 0.0022] | 0.7014 | +0.1141 [0.1126, 0.1155] |
+| + exposure | 0.6122 | −0.0024 [−0.0032, −0.0014] | 0.6244 | +0.0370 [0.0359, 0.0380] |
+| **+ both (pre-registered)** | 0.6144 | −0.0002 [−0.0011, 0.0008] | **0.6738** | **+0.0864 [0.0852, 0.0877]** |
+| MRR, + both | 0.3201 | +0.0053 [0.0038, 0.0067] | 0.4361 | +0.0628 [0.0613, 0.0642] |
+
+Validation trace (baseline): MIND 0.5967 → 0.6039 → 0.6107 (still rising at the cap);
+EB-NeRD 0.5818 → 0.5848 → 0.5823 (epoch 2 selected). Training cost after D41's subsample:
+~9 min per MIND epoch, ~6 min per EB-NeRD epoch, ~30 min per arm including scoring.
+
 ---
 
 ## J. How to re-measure
