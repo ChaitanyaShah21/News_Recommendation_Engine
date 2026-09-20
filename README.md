@@ -157,16 +157,43 @@ count.
 | `src/newsrec/submission.py`, `predict.py` | Q5 leaderboard path |
 | `scripts/` | thin command-line entry points, no logic |
 | `configs/` | all paths; nothing hardcoded in code |
-| `tests/` | 240 tests, including `test_no_leakage.py` (Q9) |
+| `src/newsrec/features/` | Q1 behavioural features + `unavailable.py`, the Q9 quarantine |
+| `src/newsrec/rank/` | `gbdt.py` (Q2 LambdaRank), `nrms.py` (Q3 baseline) |
+| `tests/` | 326 tests, including `test_no_leakage.py` (Q9) |
 | `data/`, `reports/submissions/` | gitignored |
 
 ### Documents
 
 | File | Contents |
 |---|---|
-| `ARCHITECTURE.md` | system design + the full decision log (D1–D30), every alternative rejected and why |
+| `ARCHITECTURE.md` | system design + the full decision log (D1–D41), every alternative rejected and why |
 | `GLOSSARY.md` | every term, plain-language then technical |
 | `SCALE_NOTES.md` | measured "where this breaks at 10×" observations |
+
+---
+
+## Assignment 2 headline results
+
+**Codabench (external, unseen test sets), 2026-09-20:**
+
+| | A1's system | **A2 (this system)** | our offline test AUC |
+|---|---|---|---|
+| EB-NeRD (RecSys 2024) | 0.5396 | **0.7397** | 0.7428 |
+| MIND | 0.6191 | **0.6181** | 0.6144 |
+
+Screenshots: `reports/figures/{mind,ebnerd}_a2_leaderboard.png`.
+
+**Offline, local test split (paired bootstrap 95% CIs):**
+
+| | MIND | EB-NeRD |
+|---|---|---|
+| Q2 re-ranker vs A1's semantic scorer | +0.0048 [0.0012, 0.0080] | **+0.1971 [0.1953, 0.1989]** |
+| Q3 NRMS + time term vs NRMS | −0.0002 (spans zero) | **+0.0864 [0.0852, 0.0877]** |
+| Q9 price of serving-unavailable features | −0.0150 (unmeasurable, see note) | +0.0162 [0.0153, 0.0172] |
+| Q4 p99 per request / cost per 1,000 queries | 360 ms / $0.0027 | 2,369 ms / $0.0077 |
+
+Full design note: `reports/design_note_a2.pdf` (7 pages). Every figure traces to
+`reports/NUMBERS.md`.
 
 ---
 

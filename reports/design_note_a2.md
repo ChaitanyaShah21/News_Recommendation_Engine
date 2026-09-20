@@ -106,20 +106,15 @@ datasets' decay features are not comparable to each other.
 
 ### 3.2 Retrieved top-K (K = 100) — our own candidate generation
 
-| | MIND | EB-NeRD |
-|---|---|---|
-| recall@100, in-circulation pool | 2.6% | 2.5% |
-| impressions with ≥1 click retrieved | 798 of 21,289 | 4,704 of 186,721 |
-| MRR, retrieval order → re-ranked | 0.070 → **0.260** | 0.052 → **0.567** |
-| AUC, retrieval order → re-ranked | 0.567 → 0.786 | 0.508 → 0.968 |
-
-Two honest readings. First, **recall@K is the ceiling**: re-ranking cannot rescue the
-97.5% of impressions whose clicked article never entered the top 100, which is why both
-leaderboards score a supplied list instead. Second, **EB-NeRD's 0.968 is not a better
-system than §3.1's 0.743**: the 99 negatives here were drawn from a 125,541-article corpus
-by text similarity, so most were not in circulation that day, and freshness separates them
-almost trivially. Easy negatives inflate AUC. The supplied-list number is the one to
-believe.
+A1's semantic generator retrieves 100 from the whole corpus; the same model re-ranks them
+(full numbers in `reports/retrieved_regime_*_test_k100.csv`). **Recall@100 is 2.6% / 2.5%**,
+so ranking metrics are defined on 798 / 4,704 impressions only — re-ranking cannot rescue
+an impression whose clicked article never entered the 100, which is why both leaderboards
+score a supplied list instead. Within those, MRR moves 0.070 → **0.260** (MIND) and
+0.052 → **0.567** (EB-NeRD). EB-NeRD's AUC there (0.508 → 0.968) is **not** a better system
+than §3.1's 0.743: the 99 negatives were pulled from a 125,541-article corpus by text
+similarity, so most were never in circulation that day and freshness separates them
+trivially. Easy negatives inflate AUC; the supplied-list number is the one to believe.
 
 ## 4. Q3 — baseline reproduced, then beaten
 
@@ -175,19 +170,18 @@ Measured per **single user request** (K = 100), single process, **with nothing e
 — NRMS training was suspended for the measurement, because A1's error log already contains
 a conclusion that had to be withdrawn after being taken on a contended machine.
 
-| | MIND | EB-NeRD |
+| p50 / p99 per stage | MIND | EB-NeRD |
 |---|---|---|
-| resident footprint, total | **283 MB** | **475 MB** |
-| — largest items | embeddings 100 MB · user vectors 77 MB · exposure index 71 MB · BM25 19 MB | embeddings 193 MB · exposure index 123 MB · user vectors 61 MB · session table 44 MB |
-| start-up (context build) | 5.2 s | 137 s at leaderboard scale |
-| stage 1, retrieve top-100 | p50 **9.0 ms**, p99 23.7 ms | p50 **9.6 ms**, p99 22.2 ms |
-| stage 2, build features | p50 **223.0 ms**, p99 348.0 ms | p50 **439.0 ms**, p99 2,352 ms |
-| stage 3, score 100 candidates | p50 **3.2 ms**, p99 9.0 ms | p50 **4.3 ms**, p99 6.9 ms |
-| **total** | p50 237 ms, **p99 360 ms** | p50 452 ms, **p99 2,369 ms** |
-| throughput per core | 4.2 q/s | 1.5 q/s |
-| **cost per 1,000 queries** (at $0.04 / vCPU-hour) | **$0.0027** | **$0.0077** |
-| cores for 1,000 QPS | 239 | 689 |
+| retrieve top-100 | 9.0 / 23.7 ms | 9.6 / 22.2 ms |
+| **build features** | **223.0 / 348.0 ms** | **439.0 / 2,352 ms** |
+| score 100 candidates | 3.2 / 9.0 ms | 4.3 / 6.9 ms |
+| **total** | 237 / **360 ms** | 452 / **2,369 ms** |
+| footprint · throughput · cost/1,000 q · cores for 1,000 QPS | 283 MB · 4.2 q/s · **$0.0027** · 239 | 475 MB · 1.5 q/s · **$0.0077** · 689 |
 | **p99 < 100 ms SLA** | **not met** | **not met** |
+
+Footprint detail: embeddings 100/193 MB, exposure index 71/123 MB, user vectors 77/61 MB,
+BM25 19/22 MB, EB-NeRD's session table 44 MB. Start-up (context build) 5.2 s, or 137 s at
+leaderboard scale.
 
 **Little's law check.** With one request in flight X ≤ 1/R: MIND's R = 0.237 s gives
 X ≤ 4.2 q/s, exactly the measured per-core throughput — so the only way past it is to cut R
@@ -266,17 +260,11 @@ blindness (§2), mutation-verified against four planted leaks. A quarantined fut
 allowlist plus everything in `features/unavailable.py` (`read_time`,
 `scroll_percentage`, `total_pageviews`, `future_exposure_share_24h`).
 
-| MIND (test, 21,947) | AUC | MRR |
+| AUC | MIND (21,947) | EB-NeRD (186,721) |
 |---|---|---|
-| honest — **this is what ships** | 0.6144 [0.6104, 0.6185] | 0.3191 |
-| + serving-unavailable | 0.5994 [0.5952, 0.6033] | 0.3014 |
-| paired difference | **−0.0150 [−0.0181, −0.0118]** | −0.0177 |
-
-| EB-NeRD (test, 186,721) | AUC | MRR |
-|---|---|---|
-| honest — **this is what ships, and what both leaderboard files came from** | 0.7428 [0.7415, 0.7441] | 0.5219 |
-| + serving-unavailable | 0.7590 [0.7578, 0.7602] | 0.5487 |
-| paired difference | **+0.0162 [0.0153, 0.0172]** | +0.0269 |
+| honest — **what ships, and what both leaderboard files came from** | 0.6144 [0.6104, 0.6185] | 0.7428 [0.7415, 0.7441] |
+| + serving-unavailable | 0.5994 [0.5952, 0.6033] | 0.7590 [0.7578, 0.7602] |
+| paired difference | **−0.0150 [−0.0181, −0.0118]** | **+0.0162 [0.0153, 0.0172]** |
 
 **The price of cheating on EB-NeRD is +0.016 AUC: real, but under a tenth of what the
 honest behavioural features bought (+0.197).** The two columns that carry it are
