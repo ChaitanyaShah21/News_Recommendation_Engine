@@ -45,3 +45,4 @@ codabench/
 
 # ---- Design-note build intermediate (the PDF itself is a deliverable, keep it) ----
 reports/design_note.html
+reports/design_note_a2.html

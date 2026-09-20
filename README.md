@@ -1,24 +1,29 @@
-> **⚠️ This README still describes Assignment 1.** This repository is now the
-> **Assignment 2** working repo (due 20 September 2026) and is mid-migration: A1's code,
-> results and 240 tests are all present and passing, but no A2 work has been done yet.
-> The README is rewritten in Phase A6. Until then, `PROGRESS.md` is the accurate status
-> document — start there.
->
-> Assignment 1 is finished and frozen at `/home/csharp/IRE/A1`, tag `phase-5-complete`.
+# News Recommendation at Scale: Retrieval, Behavioural Features and a Trained Re-Ranker
 
-# News Recommendation: Lexical & Semantic Retrieval at Scale
+**Information Retrieval & Extraction Information Retrieval & Extraction — Assignments 1 and 2** · Chaitanya Shah
 
-**Chaitanya Shah · Systems Design** · Chaitanya Shah
+A news-recommendation pipeline over two datasets in two languages — **MIND** (Microsoft
+News Dataset, English) and **EB-NeRD** (Ekstra Bladet News Recommendation Dataset,
+Danish).
 
-A news-recommendation pipeline over two datasets in two languages — **MIND**
-(Microsoft News Dataset, English) and **EB-NeRD** (Ekstra Bladet News Recommendation
-Dataset, Danish) — covering ingestion into one unified schema, BM25 (Best Match 25)
-lexical retrieval, embedding-based semantic retrieval, a full offline evaluation harness
-with bootstrap confidence intervals, an anti-gaming leakage ablation, and submissions to
-both Codabench leaderboards.
+**Assignment 1** (frozen at tag `phase-5-complete`) built ingestion into one unified
+schema, BM25 (Best Match 25) lexical retrieval, embedding-based semantic retrieval, an
+offline evaluation harness with bootstrap confidence intervals, a leakage ablation, and
+submissions to both Codabench leaderboards.
 
-**240 tests pass.** Every module was mutation-tested — deliberate bugs reintroduced one
-at a time to confirm the tests actually catch them.
+**Assignment 2** (this repository, tag `a2-submission-ready`) adds behavioural features
+from the click-logs, a trained LambdaRank re-ranker over them, an NRMS neural baseline
+with an ablated improvement and a paired bootstrap confidence interval, a serving and
+scale analysis, and an extended sliced evaluation. **Design note:
+[`reports/design_note_a2.pdf`](reports/design_note_a2.pdf).**
+
+**326 tests pass**, including `tests/test_no_leakage.py`, which enforces the
+behaviour-window boundary as two properties and is mutation-verified against four planted
+forward leaks. Every module was mutation-tested — deliberate bugs reintroduced one at a
+time to confirm the tests catch them.
+
+Status and open items are tracked in `PROGRESS.md`; every design decision, with the
+alternatives rejected, is in `ARCHITECTURE.md` (D1–D41).
 
 ---
 
@@ -40,8 +45,9 @@ python3 -m venv .venv
 ```
 
 Reads raw-data locations from `configs/mind.yaml` and `configs/ebnerd.yaml`, verifies the
-files are present, and rebuilds the whole feature store into `data/processed/` in **2.8 s**
-(77,015 articles · 280,197 impressions · 154,714 user histories).
+files are present, and rebuilds the whole feature store into `data/processed/`. At A2's
+scale (D33: 5% of `ebnerd_large`'s users) that is **40 s at 3.3 GB peak** —
+190,779 articles · 1,449,863 impressions · 268,100 user-history rows.
 
 It does **not** download anything (D10). If raw data is missing it prints the exact
 download commands and exits 1 — both the success and failure paths are tested.
@@ -102,7 +108,7 @@ trained re-ranker and the A2 evaluation. Timings measured on this machine
 ### Tests
 
 ```bash
-.venv/bin/python -m pytest          # 240 tests
+.venv/bin/python -m pytest          # 326 tests, ~5 min
 .venv/bin/python -m pytest tests/test_no_leakage.py   # the Q9 deliverable
 ```
 
@@ -197,10 +203,11 @@ Full design note: `reports/design_note_a2.pdf` (7 pages). Every figure traces to
 
 ---
 
-## Headline results
+## Assignment 1 headline results (retrieval only)
 
-All on the validation split, macro-averaged per impression, impressions with a usable
-query (D17/D18).
+Kept for continuity: these are A1's numbers, on the validation split, macro-averaged per
+impression, over impressions with a usable query (D17/D18). A2's results are in the
+section above and in `reports/design_note_a2.pdf`.
 
 **Retrieval — recall@200 against a random baseline** (the baseline is what makes it
 readable; without it EB-NeRD's numbers are actively misleading):
