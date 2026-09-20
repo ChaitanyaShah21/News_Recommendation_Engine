@@ -2854,3 +2854,57 @@ wrong in a different direction each time: run 1 would have overstated D44, run 2
 overstated the batch tail, run 3 would have understated the system by blaming D44's path
 for a cold-cache stage-1 cost. On this machine a latency measured once is not a measurement
 — the 2026-09-16 error-log entry, generalised.
+
+### D42c — a limitation of rack features that D37's retrieved regime makes acute
+
+**Date:** 2026-09-20 · found by inspection, not yet measured
+
+A rack feature is defined **relative to whatever candidate set is supplied**. That is
+exactly what makes it useful on the leaderboards, where the supplied set is the platform's
+own inview list — the same kind of set the model trained on. It is also a dependency on the
+candidate set that the absolute features do not have, and Q2's second regime changes that
+set.
+
+**Measured rack sizes (test split):**
+
+| | rack size the model trained on (inview) | rack size in D37's retrieved regime |
+|---|---|---|
+| MIND | mean 38.5, p50 **25**, p90 93 | **100** (K) |
+| EB-NeRD | mean 12.1, p50 **9**, p90 23 | **100** (K) |
+
+So on EB-NeRD the model learned percentiles over a typical rack of **nine** candidates and
+would be asked to read percentiles over **one hundred**. Two things change, not one:
+
+- **Granularity.** With nine candidates a percentile can only take nine values; with a
+  hundred it is nearly continuous. A split learned at `exposure_share_1h_pct > 0.8` sits
+  between the 8th and 9th of nine candidates, and between the 80th and 81st of a hundred.
+- **Population.** Inview candidates are what the platform *chose to show* — already
+  filtered, and overwhelmingly fresh (92.7% / 93.5% of clicks go to fresh articles).
+  Retrieved top-K are semantic neighbours drawn from the whole in-circulation pool. The
+  within-rack distribution of freshness and exposure is therefore different in kind, not
+  just in size, so "the 75th percentile of this rack" denotes a different thing.
+
+`f_z` is the more fragile of the two: a sample standard deviation over nine values is noisy,
+over a hundred it is stable, so the z-scores are not on comparable scales between regimes
+either.
+
+**What this does and does not affect.**
+- **Both leaderboards: unaffected.** They supply `article_ids_inview` / `impressions`, the
+  same kind of set the model trained on. The submitted numbers are not in question.
+- **D37's retrieved regime: affected, and more than the base model was.** D37 already
+  conceded that re-ranking retrieved candidates applies the model outside its training
+  distribution and said so rather than hiding it. D42 deepens that, because now the
+  *features themselves* are computed over a different population, not merely the items.
+
+**Not fixed, and not quietly ignored.** The options, for the retrospective:
+1. Report the retrieved regime with the **base** model only, and say why. Cheapest, honest,
+   and keeps D37's existing numbers valid.
+2. Report both models there and let the gap be the measurement — it would quantify how much
+   rack features depend on their rack.
+3. Train a second model on retrieved candidates. Rejected for the same reason D37 rejected
+   it: its negatives would be "articles the user never saw" rather than "articles the user
+   saw and skipped", which is a different label and a separate project.
+
+**Option 2 is the one worth the CPU**, because the limitation is interesting rather than
+embarrassing: it measures the price of a relative feature when the reference set changes.
+Deferred only because the machine is running D43 and the measurement needs memory.
