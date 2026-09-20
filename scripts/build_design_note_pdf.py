@@ -26,8 +26,8 @@ ROOT = Path(__file__).resolve().parent.parent
 import argparse
 
 CSS_TEMPLATE = """
-@page { size: A4; margin: %(margin)s; }
-body { font-family: "DejaVu Serif", Georgia, serif; font-size: %(pt)spt; line-height: 1.32;
+@page { size: A4; margin: __MARGIN__; }
+body { font-family: "DejaVu Serif", Georgia, serif; font-size: __PT__pt; line-height: 1.32;
        color: #111; margin: 0; }
 h1 { font-size: 16pt; margin: 0 0 .4em; }
 h2 { font-size: 11.5pt; margin: .85em 0 .3em; border-bottom: 1px solid #ccc;
@@ -85,7 +85,7 @@ def main() -> int:
     SRC, PDF = ROOT / args.src, ROOT / args.pdf
     HTML = PDF.with_suffix(".html")
     LIMIT = args.limit
-    CSS = CSS_TEMPLATE % {"margin": args.margin, "pt": args.pt}
+    CSS = CSS_TEMPLATE.replace("__MARGIN__", args.margin).replace("__PT__", args.pt)
     if not SRC.exists():
         sys.exit(f"FATAL: {SRC} not found")
 
