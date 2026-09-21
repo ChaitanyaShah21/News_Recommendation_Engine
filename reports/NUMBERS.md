@@ -764,3 +764,51 @@ test AUC, and that is itself a reportable observation.
 
 **Cost:** 20.2 h wall clock (estimated 16.6 h). Per-epoch time drifted upward, 2.2 h → 3.6 h;
 test scoring took ~1 h per arm because `score()` makes one `model.news` call per impression.
+
+### K.11 D42c — the retrieved regime inflates rack features; the number is not reportable as a gain
+
+`run_retrieved_regime.py --models base rack` scores both models over A1's semantic top-100
+(MIND test, macro recall@100 = 2.62%, so only **798 of 21,947** impressions have a clicked
+article among the 100 and carry a defined metric).
+
+| system | AUC | MRR | nDCG@5 | nDCG@10 |
+|---|---|---|---|---|
+| retrieval order (A1 semantic) | 0.5668 | 0.0695 | 0.0419 | 0.0699 |
+| lgbm re-ranked (base) | 0.7858 | 0.2603 | 0.2480 | 0.2895 |
+| lgbm + rack re-ranked | **0.9222** | 0.4484 | 0.4851 | 0.5313 |
+| rack − base (paired) | **+0.1364** | +0.1881 | +0.2372 | +0.2419 |
+
+**None of that is evidence the rack features are good, and it must not be quoted as such.**
+AUC 0.9222 against 0.6367 for the same model on the inview lists is the giveaway. The cause,
+measured rather than guessed:
+
+| MIND, mean `exposure_share_1h` | clicked | unclicked | ratio |
+|---|---|---|---|
+| inview lists (the training distribution) | 0.428 | 0.321 | **1.33x** |
+| retrieved top-100 | 0.355 | **0.00316** | **112x** |
+
+Mean `freshness_hours`: inview 21.2 (clicked) vs 27.9 (not); retrieved **23.0 vs 82.8**.
+Mean `exposure_share_1h_pct` in the retrieved regime: **0.983 clicked vs 0.500 unclicked** —
+the clicked article is essentially always the most-exposed item in its rack.
+
+**Why.** A retrieved rack holds one article the platform was actively promoting — it was in
+the user's inview list, which is how it came to be clicked — plus 99 semantic neighbours
+drawn from the in-circulation pool, most of which are barely being shown. "Which of these is
+being promoted right now" separates them almost perfectly, and exposure answers exactly that.
+The regime inflates the **base** model too (0.7858 vs 0.6367 on inview); rack normalisation
+inflates it further because a within-rack percentile turns a 112x gap into "top of rack".
+
+**This reverses D42c's stated prediction.** D42c expected rack features to *degrade* when the
+reference set changed from a 9-25 candidate inview list to 100 retrieved ones. They do the
+opposite. The prediction was wrong in direction and the reason is more interesting than the
+prediction: a relative feature does not merely lose meaning when its reference set changes —
+it can acquire a spurious one, if the new set is composed differently with respect to that
+feature.
+
+**It is also D37's warning, quantified.** D37 said the retrieved regime's negatives are
+"articles the user never saw, not articles the user saw and skipped", and declined to train a
+second model on them for that reason. The 112x exposure ratio is the size of that gap.
+
+**What to report:** the inview numbers (K.6), which is what both leaderboards score. The
+retrieved regime belongs in the design note as a **cautionary measurement** — evidence for why
+the supplied candidate list is the honest evaluation — not as a headline.

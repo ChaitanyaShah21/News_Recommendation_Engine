@@ -2962,3 +2962,49 @@ better and is not, and the time term looked 0.0076 worse and is 0.0032 better. W
 high-capacity models on a temporal split, a validation set that also selects the epoch is
 not a preview of the test set. This is the third time this week a measurement was believed,
 re-checked, and corrected.
+
+### D42d — D42c's prediction was wrong in direction, and the truth is more useful
+
+**Date:** 2026-09-21 · measured · **corrects D42c**
+
+D42c predicted that rack features would **degrade** in D37's retrieved regime, because the
+model learned percentiles over inview racks of median 25 (MIND) / 9 (EB-NeRD) and would be
+asked to read them over 100 retrieved candidates. Measured, they do the opposite: rack
+normalisation *gains* **+0.1364 AUC** there, taking the model to **0.9222** against 0.6367 on
+the inview lists it was trained on.
+
+**A number that large is a symptom, not a result.** The cause, measured:
+
+| MIND, mean `exposure_share_1h` | clicked | unclicked | ratio |
+|---|---|---|---|
+| inview lists (training distribution) | 0.428 | 0.321 | **1.33x** |
+| retrieved top-100 | 0.355 | **0.00316** | **112x** |
+
+`exposure_share_1h_pct`, retrieved regime: **0.983 clicked vs 0.500 unclicked**.
+
+A retrieved rack contains one article the platform was actively promoting — that is *how* it
+came to be clicked — and 99 semantic neighbours that mostly were not being shown at all. The
+task collapses into "spot the promoted article", and exposure answers it almost perfectly.
+The base model is inflated too (0.7858); rack features inflate it further because a
+within-rack percentile converts a 112x gap into "top of rack, essentially always".
+
+**The correction is worth more than the original prediction.** D42c reasoned that a relative
+feature loses meaning when its reference set changes. The sharper statement is that it can
+**acquire a spurious meaning**: if the new candidate set is composed differently with respect
+to the underlying quantity, a within-set comparison becomes informative about the composition
+rather than about the user. That is a general hazard of relative features and it applies to
+any system that trains on one candidate generator and serves another.
+
+**It is also D37's warning with a number on it.** D37 declined to train a second model on
+retrieved candidates because their negatives are "articles the user never saw, not articles
+the user saw and skipped". 112x is the size of that difference.
+
+**Consequences, decided:**
+- **Headline numbers stay the inview ones** (K.6). Both leaderboards score supplied lists;
+  that is the honest evaluation and the one the model is trained for.
+- **The retrieved regime is reported as a cautionary measurement**, not a result — evidence
+  for *why* the supplied list is the right evaluation surface. Reporting 0.9222 as a system
+  capability would be the most flattering and least honest number in the whole project.
+- Option 1 from D42c (report the retrieved regime with the base model only) is **rejected**:
+  the base model is inflated by the same mechanism, just less. Showing both, with the
+  exposure ratio beside them, is what makes the artefact visible.

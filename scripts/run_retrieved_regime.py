@@ -70,7 +70,7 @@ def retrieve(dataset: str, split: str, imps_all: pl.DataFrame, hist: pl.DataFram
         pl.Series("candidate_article_ids", lists, dtype=pl.List(pl.Utf8)))
 
 
-def run(dataset: str, split: str = "test") -> pl.DataFrame:
+def run(dataset: str, split: str = "test", models=("base",)) -> pl.DataFrame:
     imps = pl.read_parquet(PROCESSED / "impressions.parquet").filter(pl.col("dataset") == dataset)
     hist = pl.read_parquet(PROCESSED / "history.parquet").filter(pl.col("dataset") == dataset)
     arts = pl.read_parquet(PROCESSED / "articles.parquet").filter(pl.col("dataset") == dataset)
@@ -88,45 +88,75 @@ def run(dataset: str, split: str = "test") -> pl.DataFrame:
 
     # A1's retrieval order as a score: rank 0 best. Kept per impression, in list order.
     ctx = assemble.build_context(dataset, imps, arts, ids, emb)
-    booster = lgb.Booster(model_file=str(REPO_ROOT / "data" / "models" / f"lgbm_{dataset}.txt"))
-    feats = assemble.FEATURES[dataset]
-    before, after, labels = [], [], []
+    # D42c: every requested model scores the SAME retrieved candidates, so the gap
+    # between them prices what a rack-relative feature costs when its reference set
+    # changes. The models were trained on inview racks (MIND median 25, EB-NeRD
+    # median 9) and are asked here to read percentiles over K = 100 retrieved ones.
+    boosters = {}
+    for tag in models:
+        suffix = "_rack" if tag == "rack" else ""
+        bst = lgb.Booster(model_file=str(REPO_ROOT / "data" / "models"
+                                         / f"lgbm_{dataset}{suffix}.txt"))
+        want = bst.feature_name()
+        if want not in (assemble.FEATURES[dataset], assemble.ALL_FEATURES[dataset]):
+            raise SystemExit(f"lgbm_{dataset}{suffix} uses an unsanctioned feature set")
+        boosters[tag] = (bst, want)
+
+    before, labels = [], []
+    after = {t: [] for t in boosters}
     for off in range(0, target.height, CHUNK):
         part = target.slice(off, CHUNK)
         ft = assemble.build_rows(ctx, part, hist)  # strict: every candidate was in circulation
-        s = booster.predict(gbdt.feature_matrix(ft, feats))
-        _, sa, y = gbdt.per_impression(ft, s)
-        after += sa
-        labels += y
-        before += [-np.arange(len(x), dtype=np.float64) for x in sa]
+        chunk_y = None
+        for tag, (bst, want) in boosters.items():
+            _, sa, chunk_y = gbdt.per_impression(ft, bst.predict(
+                gbdt.feature_matrix(ft, want)))
+            after[tag] += sa
+        labels += chunk_y
+        # Retrieval order, rank 0 best. Lengths come from this chunk's own
+        # per-impression split, not from a previous one.
+        before += [-np.arange(len(x), dtype=np.float64) for x in chunk_y]
     b = metrics.evaluate_impressions(before, labels).as_dict()
-    a = metrics.evaluate_impressions(after, labels).as_dict()
+    per = {t: metrics.evaluate_impressions(v, labels).as_dict() for t, v in after.items()}
+    a = per[next(iter(boosters))]
     n_def = int((~np.isnan(a["MRR"])).sum())
 
     rows = []
-    for name, vals in (("retrieval order (A1 semantic)", b), ("lgbm re-ranked", a)):
+    named = [("retrieval order (A1 semantic)", b)]
+    named += [(f"lgbm{'' if t == 'base' else '+rack'} re-ranked", per[t]) for t in boosters]
+    for name, vals in named:
         row = {"dataset": dataset, "system": name, "k": K, "n_impressions": n_all,
                "n_with_a_hit": n_def, f"recall@{K}": round(float(recall.mean()), 4)}
         for m in METRICS:
             iv = bootstrap.bootstrap_mean(vals[m])
             row.update({m: round(iv.point, 4), f"{m}_lo": round(iv.low, 4), f"{m}_hi": round(iv.high, 4)})
         rows.append(row)
-    row = {"dataset": dataset, "system": "lgbm - retrieval order", "k": K, "n_impressions": n_all,
-           "n_with_a_hit": n_def, f"recall@{K}": None}
-    for m in METRICS:
-        iv = bootstrap.paired_bootstrap_diff(a[m], b[m])
-        row.update({m: round(iv.point, 4), f"{m}_lo": round(iv.low, 4), f"{m}_hi": round(iv.high, 4)})
-    rows.append(row)
+    diffs = [(f"lgbm{'' if t == 'base' else '+rack'} - retrieval order", per[t], b)
+             for t in boosters]
+    if "base" in boosters and "rack" in boosters:
+        diffs.append(("rack - base (paired, retrieved regime)", per["rack"], per["base"]))
+    for name, x, y in diffs:
+        row = {"dataset": dataset, "system": name, "k": K, "n_impressions": n_all,
+               "n_with_a_hit": n_def, f"recall@{K}": None}
+        for m in METRICS:
+            iv = bootstrap.paired_bootstrap_diff(x[m], y[m])
+            row.update({m: round(iv.point, 4), f"{m}_lo": round(iv.low, 4),
+                        f"{m}_hi": round(iv.high, 4)})
+        rows.append(row)
     return pl.DataFrame(rows)
 
 
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--datasets", nargs="+", default=["mind", "ebnerd"])
+    ap.add_argument("--models", nargs="+", default=["base"], choices=["base", "rack"],
+                    help="D42c: pass both to price what rack features cost when the "
+                         "candidate set changes from inview lists to retrieved top-K.")
+    ap.add_argument("--tag", default="")
     args = ap.parse_args()
     for ds in args.datasets:
-        out = run(ds)
-        path = REPORTS / f"retrieved_regime_{ds}_test_k{K}.csv"
+        out = run(ds, models=tuple(args.models))
+        path = REPORTS / f"retrieved_regime_{ds}_test_k{K}{args.tag}.csv"
         out.write_csv(path)
         with pl.Config(tbl_cols=-1, tbl_width_chars=200):
             print(out.select("system", "n_with_a_hit", *METRICS))
