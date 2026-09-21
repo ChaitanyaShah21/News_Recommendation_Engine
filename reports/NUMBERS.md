@@ -702,3 +702,65 @@ report (a 665x p99 ratio). Had only one been taken — in any of the three state
 conclusion drawn would have been wrong in a different direction each time. This is the
 2026-09-16 error-log entry generalising: on this machine, a latency measured once is not a
 measurement.
+
+### K.10 D43 word-level NRMS — completed 2026-09-21, 20.2 h
+
+Two arms on MIND, word-level news encoder (GloVe 300d, self-attention over title tokens,
+additive pooling), 60,000 train impressions, 3 epochs, epoch chosen by AUC on a seeded
+30,000-impression validation sample, **evaluated on the whole 21,947-impression test split**.
+1,000-resample paired bootstrap. `reports/nrms_ablation_mind_test_word.csv`.
+
+**Validation traces (these SELECTED the epoch; they are not results):**
+
+| | ep 1 | ep 2 | ep 3 | chosen |
+|---|---|---|---|---|
+| sentence-level baseline (D41) | 0.5967 | 0.6039 | 0.6107 | ep 3 |
+| word-level baseline | **0.6305** | 0.6269 | 0.6273 | ep 1 |
+| word-level + fresh + exposure | 0.6229 | 0.6141 | 0.6133 | ep 1 |
+
+**Test split — the reportable numbers:**
+
+| system | AUC | MRR | nDCG@5 | nDCG@10 |
+|---|---|---|---|---|
+| word-level `nrms` | 0.6129 [0.6091, 0.6167] | 0.3110 | 0.2931 | 0.3567 |
+| word-level `nrms+fresh+exposure` | 0.6161 [0.6122, 0.6201] | 0.3140 | 0.2980 | 0.3596 |
+| **paired difference** | **+0.0032 [0.0018, 0.0045]** | +0.0031 [0.0011, 0.0050] | +0.0049 [0.0030, 0.0067] | +0.0029 [0.0012, 0.0045] |
+
+**Finding 1 — the word-level encoder overfits; D39's substitution cost nothing.**
+
+| MIND baseline | validation | test |
+|---|---|---|
+| sentence-level, 3 epochs | 0.6107 | 0.6146 [0.6109, 0.6184] |
+| sentence-level, 6 epochs | 0.6187 | 0.6180 [0.6143, 0.6221] |
+| word-level | **0.6305** | **0.6129 [0.6091, 0.6167]** |
+
+On validation the word-level encoder leads by **+0.0198**. On test it is **indistinguishable
+from the 3-epoch sentence-level model** (intervals overlap) and **below** the 6-epoch one.
+11.0M parameters against 413k: it fits the validation window hard and does not transfer to
+the later test window. Both word-level arms peak at **epoch 1** and decline, while the
+sentence-level baseline was still rising at epoch 3 — and the 2026-09-20 epoch defect
+(identical negatives every epoch) makes that overfitting more likely than it should be.
+
+**This is D7/D36 working as designed.** Reporting the validation number would have claimed a
++0.02 improvement that does not exist. The split that chose nothing is what caught it.
+
+**Finding 2 — D40's time term changes sign on MIND under a faithful encoder.**
+
+| MIND, `+fresh+exposure − nrms` | paired ΔAUC | excludes zero? |
+|---|---|---|
+| sentence-level, 3 epochs | −0.0002 [−0.0011, 0.0008] | no |
+| sentence-level, 6 epochs | −0.0001 [−0.0011, 0.0009] | no |
+| **word-level** | **+0.0032 [0.0018, 0.0045]** | **yes** |
+
+The MIND null was partly an artefact of the substituted news encoder. It is small — EB-NeRD's
+is +0.0864 — but it is now separated from zero on all four metrics.
+
+**A caveat that applies to both findings.** The word-level and sentence-level numbers come
+from separate runs, so the *cross-encoder* comparison is unpaired; only the within-encoder
+arm differences are paired. And validation misled about the direction of BOTH comparisons —
+on validation the time term appeared to *hurt* by 0.0076, on test it helps by 0.0032. On
+MIND, with high-capacity models and a temporal split, validation AUC is a poor predictor of
+test AUC, and that is itself a reportable observation.
+
+**Cost:** 20.2 h wall clock (estimated 16.6 h). Per-epoch time drifted upward, 2.2 h → 3.6 h;
+test scoring took ~1 h per arm because `score()` makes one `model.news` call per impression.

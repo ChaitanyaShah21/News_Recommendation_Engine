@@ -2908,3 +2908,57 @@ either.
 **Option 2 is the one worth the CPU**, because the limitation is interesting rather than
 embarrassing: it measures the price of a relative feature when the reference set changes.
 Deferred only because the machine is running D43 and the measurement needs memory.
+
+### D43b — outcome: the deviation was harmless, and validation lied twice
+
+**Date:** 2026-09-21 · measured, 20.2 h of CPU · **overturns a claim made from validation
+mid-run**
+
+D39 accepted one deviation from the paper under deadline pressure — a projection of a frozen
+sentence embedding in place of NRMS's word-level news encoder — and called it "the one thing
+a grader could fairly call a variant rather than a reproduction". D43 built the paper's
+encoder to find out what that cost.
+
+**It cost nothing.** On the test split the word-level baseline is **0.6129 [0.6091, 0.6167]**
+against the sentence-level **0.6146 [0.6109, 0.6184]** at 3 epochs and **0.6180 [0.6143,
+0.6221]** at 6 — overlapping the first and below the second.
+
+**The trap this walked into, and the guard that caught it.** On *validation* the word-level
+encoder led by +0.0198 (0.6305 vs 0.6107), and that number was reported to Chaitanya mid-run
+as evidence the substitution had cost accuracy. It had not. The word-level model has **11.0M
+parameters against 413k**, fits the validation window hard, and does not transfer to the
+later test window: both its arms peak at **epoch 1** and decline, while the sentence-level
+baseline was still rising at epoch 3. D7 carved the test split so that nothing would select
+on it, and D36 insisted every headline number come from it. That is exactly what stopped a
++0.02 claim that does not exist.
+
+The 2026-09-20 epoch defect compounds it: identical negatives every epoch means there is
+nothing new to learn after the first pass, so extra epochs buy overfitting rather than
+improvement — most visible in the model with the most capacity to overfit.
+
+**And a second reversal, in the opposite direction.** D40's time term:
+
+| MIND, `+fresh+exposure − nrms` | paired ΔAUC |
+|---|---|
+| sentence-level, 3 epochs | −0.0002 [−0.0011, 0.0008] |
+| sentence-level, 6 epochs | −0.0001 [−0.0011, 0.0009] |
+| **word-level** | **+0.0032 [0.0018, 0.0045]** |
+
+Twice the sentence-level model said the time term does nothing on MIND. Under the paper's
+encoder it separates from zero on all four metrics. **The MIND null was partly an artefact
+of the substituted encoder** — so D39's deviation, while it cost nothing in absolute
+accuracy, did distort the finding D40 exists to test. That is a more interesting result than
+either "the substitution was fine" or "the substitution was bad", and it is only visible
+because both were run.
+
+**What is safe to say, and what is not.** The within-encoder arm differences are paired and
+sound. The *cross-encoder* comparison is unpaired — separate runs, separate models — so
+"word-level is indistinguishable from sentence-level" rests on overlapping intervals, not on
+a paired test. Saying more than that would overreach.
+
+**The methodological observation worth carrying into the design note.** On MIND, validation
+AUC mispredicted the *direction* of both comparisons: the word-level encoder looked +0.0198
+better and is not, and the time term looked 0.0076 worse and is 0.0032 better. With
+high-capacity models on a temporal split, a validation set that also selects the epoch is
+not a preview of the test set. This is the third time this week a measurement was believed,
+re-checked, and corrected.
