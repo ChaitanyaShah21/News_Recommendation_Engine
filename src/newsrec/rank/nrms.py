@@ -31,6 +31,7 @@ to fresh articles. Off = the reproduced baseline; on = the improvement.
 
 from __future__ import annotations
 
+import sys
 import time
 from dataclasses import dataclass
 
@@ -276,6 +277,13 @@ def train(model: NRMS, b: Batchable, emb: np.ndarray, epochs: int = 3, batch: in
                 el = time.perf_counter() - t_ep
                 log(f"    {k:,}/{len(S):,} ({done:.0%}) {el:.0f}s elapsed, "
                     f"~{el / done - el:.0f}s left this epoch")
+                # Progress must reach the log FILE, not sit in a buffer. Python
+                # block-buffers stdout to a file at ~8 KB, and these lines are
+                # ~70 bytes an hour apart, so without this a 16 h run looks
+                # identical to a hung one until the next flushing print. Found
+                # on 2026-09-21 when the log had been silent for 2h41m while
+                # the process was in fact at 730% CPU.
+                sys.stdout.flush()
             sb = S[k:k + batch]
             hist, hmask = _hist_tensors(E, b.hist_rows[b.user_of_imp[sb[:, 0]]])
             rows = sb[:, 1:]                                  # positive first
@@ -288,6 +296,7 @@ def train(model: NRMS, b: Batchable, emb: np.ndarray, epochs: int = 3, batch: in
             opt.step()
             total += loss.item() * len(sb)
         log(f"  epoch {ep + 1}: {len(S):,} samples, loss {total / len(S):.4f}")
+        sys.stdout.flush()
     return model
 
 
