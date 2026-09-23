@@ -826,3 +826,20 @@ GloVe word vectors and then pools them with additive attention, so a word is enc
 the context of the other words. D39 substituted a learned projection of a pre-pooled
 384-dim sentence embedding, which can rescale that summary but cannot revisit it. D43
 restores the paper's version.
+
+### Selection split vs reporting split
+**Plain:** the paper you revise from, versus the paper you sit.
+**Technical:** validation selects (the epoch, the tree count, the arm); test reports. A number
+measured on the split that chose it is optimistic twice over — it is a maximum, taken on the
+data that located the maximum. D7 carved A2's test split so nothing would ever select on it,
+and on 2026-09-21 that stopped a +0.0198 claim about the word-level encoder that the test
+split showed to be −0.0017.
+
+### Regime inflation
+**Plain:** an exam that looks easy because the wrong answers are obviously wrong.
+**Technical:** a metric rising because the *candidate set* changed rather than the system
+improving. Scoring the A2 model over retrieved top-100 instead of the supplied inview list
+takes AUC from 0.6367 to 0.9222, because the clicked article is 112x more exposed than its
+retrieved rack-mates and only 1.33x more exposed than its inview ones. The system did not
+improve; the negatives got easier. A relative feature amplifies this, because a within-rack
+percentile reports the rack's composition as confidently as it reports the candidate.

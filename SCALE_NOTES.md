@@ -516,3 +516,40 @@ or a warm pool, rather than per-replica loading.
 **And a method note worth more than the numbers.** Three runs were taken only because the
 first produced a result too flattering to trust. Each of the three, taken alone, would have
 supported a different and wrong conclusion. Latency on this machine is not a scalar.
+
+### Word-level NRMS: where the cost actually went (D43, 2026-09-21)
+
+Measured, against the 16.6 h predicted: **20.2 h**. The gap is instructive rather than noise.
+
+| phase | predicted | measured |
+|---|---|---|
+| training, per epoch | ~2.3 h | 2.2 h → 3.6 h (drifted upward over the run) |
+| validation scoring, per epoch | folded into the above | included |
+| **test scoring, per arm** | **~0.3 h** | **~1 h** |
+
+**Test scoring was 3x the estimate, and for a structural reason.** `nrms.score` encodes each
+impression's candidates in its **own** `model.news` call:
+
+```
+for k in range(0, n_impressions, 512):       # history encoded in batches of 512
+    u = model.user(...)                      # good: 512 x 50 news at once
+    for j, i in enumerate(idx):
+        c = model.news(E[cand_rows[s:e]])    # one call per IMPRESSION, ~38 items
+```
+
+At sentence-level the news encoder is a single `Linear`, so per-call overhead is invisible.
+At word-level it is an embedding lookup, a projection, 16-head self-attention over 20 tokens
+and an additive pooling — so **21,947 small calls** dominate. Batching candidates across
+impressions would fix it; the shapes are ragged, which is why it was not written that way.
+
+**This is the same lesson as D44, in a second place.** Code shaped for one regime (cheap
+per-call work) becomes the bottleneck when the per-call work grows, and the fix is
+restructuring rather than tuning. There it was 66 Polars collections per request; here it is
+21,947 attention calls per arm.
+
+**At 10x:** training cost scales with impressions and is already the binding constraint
+(a full-data word-level arm would be ~18 h per epoch, not 2.3). Scoring scales with
+impressions too, but its constant factor is removable by batching, so the honest statement is
+that **word-level NRMS is GPU-shaped work being run on a CPU**, and the local route is only
+viable at D41's subsample. D43a's Kaggle analysis stands, and the confound it identified —
+comparing architectures trained at different scales — is the reason the subsample was kept.

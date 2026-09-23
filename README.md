@@ -117,7 +117,8 @@ trained re-ranker and the A2 evaluation. Timings measured on this machine
 | B4 | `scripts/run_extended_eval.py --extra-models _rack --tag _rack` | sliced metrics for both models side by side | ~2 min MIND, ~30 min EB-NeRD |
 | B5 | `scripts/benchmark_serving.py --model-tag _rack --online` | batch **and** online paths, timed in one process | ~5 min per dataset |
 | B6 | `scripts/build_word_vocab.py` | `words_mind.npz`: vocabulary, GloVe matrix, title tokens | ~20 s (after the 862 MB GloVe download) |
-| B7 | `scripts/run_nrms.py --word-level --tag _word --arms nrms nrms+fresh+exposure` | D43's faithful word-level NRMS, 2 arms | **~16.6 h** (CPU) |
+| B7 | `scripts/run_nrms.py --word-level --tag _word --arms nrms nrms+fresh+exposure` | D43's faithful word-level NRMS, 2 arms | **20.2 h measured** (CPU) |
+| B8 | `scripts/run_retrieved_regime.py --models base rack` | D42d: both models over the same retrieved top-K — a cautionary measurement, not a result | ~3 min MIND |
 
 **B7 is resumable.** Each epoch writes `data/processed/checkpoints/nrms_{ds}_{arm}_word.ckpt`;
 re-running the same command continues from the last completed epoch, and `--restart`
