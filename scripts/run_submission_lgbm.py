@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
+import hashlib
 import sys
 import time
 from pathlib import Path
@@ -61,6 +62,32 @@ SUB = PROCESSED / SUBMISSION_SUBDIR
 OUT_DIR = REPO_ROOT / "reports" / "submissions"
 SPLIT = "leaderboard"
 MAX_SESSION_MIN = 24 * 60  # the store's longest real session is 29 min
+
+
+def model_suffix(model_path: Path, ds: str) -> str:
+    """"" for the default model, else a tag naming the model: lgbm_mind_rack.txt -> "_rack"."""
+    if model_path.resolve() == (REPO_ROOT / "data" / "models" / f"lgbm_{ds}.txt").resolve():
+        return ""
+    stem = model_path.stem
+    return stem.removeprefix(f"lgbm_{ds}") if stem.startswith(f"lgbm_{ds}_") else f"_{stem}"
+
+
+def claim_cache(parts: Path, model_path: Path) -> None:
+    """Refuse to resume a score cache that a different model file filled.
+
+    The suffix keeps different model NAMES apart; this catches the same name
+    with different contents (a retrained model, or one from another folder).
+    """
+    digest = hashlib.sha256(model_path.read_bytes()).hexdigest()
+    marker = parts / "MODEL_SHA256"
+    if marker.exists():
+        if marker.read_text().strip() != digest:
+            raise SystemExit(f"{parts} was filled by a different model than {model_path}; "
+                             f"delete it or use another model name")
+    elif any(parts.glob("*.parquet")):
+        raise SystemExit(f"{parts} holds scores from an unrecorded model; delete it first")
+    else:
+        marker.write_text(digest + "\n")
 
 
 def context_columns(dataset: str) -> list[str]:
@@ -103,6 +130,13 @@ def main() -> int:
 
     model_path = Path(args.model) if args.model else REPO_ROOT / "data" / "models" / f"lgbm_{ds}.txt"
     booster = lgb.Booster(model_file=str(model_path))
+    # Everything this run caches or writes is keyed by the model. The per-group
+    # score cache is resumable - a group whose file exists is skipped - so an
+    # unkeyed cache made a run with a NEW model silently reuse the OLD model's
+    # scores and write them out as the new submission (found 2026-09-25, before
+    # the D42 resubmission). The default model keeps suffix "" and so its
+    # original paths, which is what the 20 September submission was built from.
+    suffix = model_suffix(model_path, ds)
     # The allowlist check stays a check (D34): the model may use EITHER sanctioned
     # feature set - D34's base allowlist, or D42's base-plus-rack - and nothing
     # else. Widened rather than removed, and matched exactly rather than as a
@@ -157,8 +191,9 @@ def main() -> int:
     print(f"history: {history.height:,} users ({time.perf_counter() - t0:.0f} s)", flush=True)
 
     # --- per user-group: build, score, save (resumable) -----------------------
-    parts = SUB / f"lgbm_scores_{ds}"
+    parts = SUB / f"lgbm_scores_{ds}{suffix}"
     parts.mkdir(exist_ok=True)
+    claim_cache(parts, model_path)
     groups = range(args.only_groups or args.groups)
     done_imps = 0
     t0 = time.perf_counter()
@@ -175,7 +210,7 @@ def main() -> int:
         pieces = []
         for (is_ba,), sub in part.group_by("is_beyond_accuracy"):
             ft = assemble.build_rows(gctx, sub, hist, strict=not is_ba)
-            sample = SUB / f"leaderboard_features_sample_{ds}.parquet"
+            sample = SUB / f"leaderboard_features_sample_{ds}{suffix}.parquet"
             if not is_ba and not sample.exists():
                 # Kept to compare against the local test table's distributions:
                 # a feature silently null or shifted here would not error.
@@ -204,7 +239,7 @@ def main() -> int:
     if scores.height != n or not (scores["_r"] == pl.arange(0, n, eager=True)).all():
         raise SystemExit("scored rows do not cover the leaderboard exactly once")
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    txt_path = OUT_DIR / f"{ds}_lgbm.txt"
+    txt_path = OUT_DIR / f"{ds}_lgbm{suffix}.txt"
     ids = lb.select("orig_id").collect()["orig_id"]
     with open(txt_path, "w", encoding="utf-8") as fh:
         step = 500_000
