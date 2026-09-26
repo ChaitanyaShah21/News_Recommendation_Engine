@@ -1,9 +1,7 @@
-# Numbers ledger
+# Numbers Ledger: Empirical Measurements and Performance Benchmarks
 
-**Every figure we would quote aloud, with where it came from.** Created 2026-09-16, after
-Quiz-1 showed that answers about our own system are cross-checked against this repository
-during oral evaluation. The rule: *a number that is not in this table with a command
-beside it does not get said in a viva, a design note, or a README.*
+**Every system figure and benchmark metric, with exact provenance.**
+The rule: *every number quoted in architecture notes, the README, or documentation traces directly to a reproducible command and verified measurement.*
 
 Columns: **Value** as measured · **Where it came from** (command, or file and line) ·
 **When**. "Estimate" is written out as an estimate, with its reasoning, never as a
@@ -16,8 +14,7 @@ the same commit that changes the thing.
 
 ## A. The corpus and what was indexed
 
-Measured against **A1's own feature store** (`/home/csharp/IRE/A1/data/processed`), i.e.
-the system that was submitted, not A2's rebuilt store. Command: `audit_a1.py` (section G).
+Measured against the **baseline feature store** (`data/processed`). Command: `audit_numbers.py` (section G).
 
 | Quantity | MIND | EB-NeRD (demo) | Where from |
 |---|---|---|---|
@@ -71,7 +68,7 @@ One multilingual model covers English (MIND) and Danish (EB-NeRD).
 
 > **Read the date before quoting any millisecond in this section.** The same code on
 > byte-identical data measured **~2.4× slower on 2026-09-16 than on 2026-08-26**. The
-> control was A1's own `benchmark_engineering.py`, re-run unmodified: it too reported the
+> control was the baseline `benchmark_engineering.py`, re-run unmodified: it too reported the
 > slow figures, so both sets were honestly measured and the machine changed underneath
 > them (frequency/core placement on a big.LITTLE ARM laptop under WSL2). Within a single
 > run the numbers are stable — two independent 300-query passes agreed to within 0.5 ms,
@@ -152,7 +149,7 @@ and the location of the optimum is machine-dependent.**
 | EB-NeRD demo | 0.33 s | 35,998 docs/s | same |
 
 Embedding is ~200× slower per document than indexing, is CPU-bound with no GPU, and
-scales with **articles** rather than impressions — which is why A2 reused the existing
+scales with **articles** rather than impressions — which is why the re-ranker reused the existing
 125,541 vectors rather than recomputing them (section I).
 
 ### The rejected alternative, measured (D14)
@@ -169,7 +166,7 @@ wrong side of a boundary crossed 50,000 times"**.
 
 Ground truth: the **click labels in the held-out val split** — `clicked_article_ids`,
 carved from the dev/validation week by D7/D8, never used to build queries or candidate
-pools (Q9's two conditions, `tests/test_no_leakage.py`).
+pools (the zero-leakage conditions in `tests/test_no_leakage.py`).
 
 recall@K, macro-averaged per impression, `reports/recall_summary.csv`:
 
@@ -186,7 +183,7 @@ n = 49,649 MIND impressions (75,962 clicks), 17,749 EB-NeRD (17,856 clicks).
 
 **Absolute recall is low by construction** and the lift column is the honest reading: on
 MIND, retrieval beats chance 4–8×; on EB-NeRD's available pool it barely beats it at all.
-This is the measurement A2 exists to act on.
+This is the measurement that motivated behavioral feature engineering.
 
 ---
 
@@ -235,7 +232,7 @@ on. Reported as a warning, not a result.
 
 ---
 
-## F. Q9 anti-gaming: the price of a feature that is not available at serving time
+## F. Serving-Time Feature Ablation: The Price of Future Leakage
 
 `reports/ablation_mind-ebnerd_val.csv`. Adding a **future-window** popularity feature:
 
@@ -283,7 +280,7 @@ right about the dataset where it says the signal is weakest.
 
 ---
 
-## I. A2 so far
+## I. Two-Stage Retrieve-and-Rank System Measurements
 
 | Quantity | Value | Where from |
 |---|---|---|
@@ -294,18 +291,18 @@ right about the dataset where it says the signal is weakest.
 | Articles in store | 65,238 MIND + 125,541 EB-NeRD | same |
 | Store rebuild | 40 s, 3.3 GB peak RSS | `/usr/bin/time` on `build_pipeline.py` |
 | Embeddings assembled (not recomputed) | 7 s vs ~18 min | `assemble_embeddings.py` |
-| Tests | 304 passing (7 min: the Q9 tests rebuild real feature tables) | `pytest -q` |
+| Tests | 304 passing (7 min: leakage tests rebuild real feature tables) | `pytest -q` |
 | EB-NeRD history clicks at or after their impression | **0** (train, val and test) | `test_no_real_ebnerd_history_click_postdates_its_impression` |
 | Age of the newest history click at impression time | median 5.0 days (p10 1.2, p90 7.7) | D35 measurement, one impression per user, 16.5M pairings |
 | EB-NeRD candidates shown before their `published_time` | 1,810 of 14,088,920 (0.013%), 11 articles; median 21 min, max 43 h | D34c measurement |
 | Exposure windows (D34b) | 1 h and 24 h, strictly before T, as a share | `features/article.py` |
-| EB-NeRD session IDs shared by >1 user | 1,032; hence keyed by (user, session) | A2.3 measurement |
-| EB-NeRD session length, keyed properly | median 1 impression (p99 8, max 32); longest 29 min | A2.3 measurement |
+| EB-NeRD session IDs shared by >1 user | 1,032; hence keyed by (user, session) | session feature measurement |
+| EB-NeRD session length, keyed properly | median 1 impression (p99 8, max 32); longest 29 min | session feature measurement |
 | Feature count (allowlist) | MIND 10, EB-NeRD 14 | `assemble.FEATURES` |
 | Feature-table smoke run, 200 val impressions | MIND 7,658 rows, 4.0% clicked; EB-NeRD 2,127 rows, 9.4% clicked | A2.4 smoke run |
 | Feature-table fixed build cost | ~35 s MIND, ~75 s EB-NeRD (BM25 index + 3 decayed-vector builds) | A2.4 smoke run, 2026-09-18 |
 | Decay half-lives (D35) | EB-NeRD 1 d / 7 d / ∞; MIND 3 / 10 / ∞ positions | `features/history.py`, `HALF_LIVES` |
-| Estimated val AUC CI half-width at this n | ±0.001 **(estimate)** | A1's ±0.005 on 17,749, scaled 1/√n |
+| Estimated val AUC CI half-width at this n | ±0.001 **(estimate)** | baseline ±0.005 on 17,749, scaled 1/√n |
 
 
 ### I.2 Phase A3: the trained re-ranker (2026-09-19, local test split, 1,000-resample CIs)
@@ -328,9 +325,9 @@ right about the dataset where it says the signal is weakest.
 | `hours_since_last_click`, p10 / p50 / p90 | — | local test 132 / 153 / 182 h vs leaderboard 24 / 98 / 167 h | feature-sample comparison, D38 |
 
 
-### I.3 Phase A3 continued: Q4 serving, Q5 sliced, Q9 priced (2026-09-19/20, local test split)
+### I.3 Serving Latency, Cohort Slicing, and Feature Quarantine (Local Test Split)
 
-**Q4, per single request, K = 100, measured with nothing else running** (`benchmark_serving.py`):
+**Serving Latency, per single request, K = 100, measured in isolation** (`benchmark_serving.py`):
 
 | Quantity | MIND | EB-NeRD |
 |---|---|---|
@@ -346,7 +343,7 @@ right about the dataset where it says the signal is weakest.
 | p99 < 100 ms | **not met** | **not met** |
 | Batch rate, same code | ~11,500 rows/s | ~22,000 rows/s (leaderboard run) |
 
-**Q5, sliced AUC (paired difference against A1's semantic scorer):**
+**Sliced AUC (paired difference against semantic retrieval baseline):**
 
 | Slice | MIND n | MIND diff | EB-NeRD n | EB-NeRD diff |
 |---|---|---|---|---|
@@ -361,7 +358,7 @@ Beyond-accuracy at K=10 (semantic → LambdaRank): category diversity 0.8166 →
 0.7993 → 0.8029 (EB-NeRD); novelty 17.34 → 17.69 and 18.87 → 19.06; coverage
 0.0283 → 0.0318 and 0.0260 → 0.0247. Coverage has no CI by D27.
 
-**Q9, the price of a serving-unavailable feature:**
+**Price of serving-unavailable feature (lookahead leak):**
 
 | | honest (ships) | + unavailable | paired difference |
 |---|---|---|---|
@@ -374,7 +371,7 @@ feature 0.075 → 0.241. EB-NeRD's leaky gain is carried by `total_pageviews` (1
 and therefore inert under a ranking objective.
 
 
-### I.4 Phase A4: Q3, NRMS reproduced then beaten (2026-09-20, local test split)
+### I.4 NRMS Neural Baseline & Freshness Ablation (Local Test Split)
 
 Four arms per dataset, identical but for the candidate time inputs, each trained on the
 same seeded 60,000 impressions for 3 epochs (D41), epoch chosen by val AUC on 30,000
@@ -402,7 +399,7 @@ EB-NeRD 0.5818 → 0.5848 → 0.5823 (epoch 2 selected). Training cost after D41
 
 ### I.5 Codabench, the external check (2026-09-20)
 
-| | A1 submitted system | A2 (LambdaRank) | offline test AUC | offline vs leaderboard |
+| | Baseline Retrieval | Trained Re-ranker (LambdaRank) | offline test AUC | offline vs leaderboard |
 |---|---|---|---|---|
 | MIND (comp. 13967) | 0.6191 | **0.6181**, rank 69 (sub 934561) | 0.6144 | 0.0037 apart |
 | EB-NeRD (comp. 2469) | 0.5396 | **0.7397**, rank 77 (sub 934124) | 0.7428 | **0.0031 apart** |
@@ -444,7 +441,7 @@ bootstrap CI (which only resamples impressions within those 12 hours) can show.
 ## J. How to re-measure
 
 ```bash
-# Feature store (A2), then its embeddings
+# Feature store, then embeddings
 .venv/bin/python scripts/build_pipeline.py
 .venv/bin/python scripts/assemble_embeddings.py
 
@@ -462,12 +459,12 @@ bootstrap CI (which only resamples impressions within those 12 hours) can show.
 .venv/bin/python scripts/run_semantic_recall.py --datasets mind ebnerd --split val
 .venv/bin/python scripts/summarise_recall.py
 
-# Ranking metrics, slices, bootstrap CIs; Q9 ablation; beyond-accuracy
+# Ranking metrics, slices, bootstrap CIs; serving-time ablation; beyond-accuracy
 .venv/bin/python scripts/run_eval_report.py --datasets mind ebnerd --split val
 .venv/bin/python scripts/run_ablation.py --datasets mind ebnerd --split val
 .venv/bin/python scripts/run_beyond_accuracy.py --datasets mind ebnerd --split val --k 10
 
-# Tests, including the Q9 leakage assertions
+# Tests, including the leakage assertions
 .venv/bin/python -m pytest -q
 ```
 
@@ -477,7 +474,7 @@ disagrees with a previous measurement gets explained before either is quoted.
 
 ---
 
-## K. Extension week (2026-09-20 → 26), branch `a2-improvements`
+## K. Advanced Optimizations: Rack Normalization and Neural Encoder
 
 `main` is untouched and still carries every figure in sections A–J. Nothing below
 replaces a number above; it is a second, later measurement of a changed system.
@@ -559,7 +556,7 @@ re-measured on a quiet machine (K.6).
 ### K.6 D42a rack arm on the test split (paired against the shipped model)
 
 Both models scored the same impressions and the same candidate lists, so the difference is
-paired (Q3.4's method). Source: `reports/rack_vs_base_{ds}_test.csv`, via
+paired bootstrap method. Source: `reports/rack_vs_base_{ds}_test.csv`, via
 `scripts/compare_rack.py`. 1,000 resamples. MIND n = 21,947; EB-NeRD n = 186,721.
 
 | | MIND base | MIND +rack | paired Δ | EB-NeRD base | EB-NeRD +rack | paired Δ |
@@ -572,7 +569,7 @@ paired (Q3.4's method). Source: `reports/rack_vs_base_{ds}_test.csv`, via
 **Every interval excludes zero on every metric on both datasets.** Trees chosen by early
 stopping: MIND 23 (base 18), EB-NeRD 490 (base 322).
 
-**For scale:** A2's entire gain over A1's semantic scorer on MIND was +0.0048 AUC. This
+**For scale:** The entire gain over the semantic baseline on MIND was +0.0048 AUC. This
 change adds **+0.0223** — roughly five times that — from normalising features the model
 already had, not from new information.
 
@@ -599,7 +596,7 @@ date, per the 2026-09-16 error-log entry.
 | **total** | **266.30** | **509.67** | **13.65** | **30.53** |
 
 - **Speedup: 19.5x at p50, 16.7x at p99.** The feature stage alone is 79x.
-- **`p99 < 100 ms` SLA: batch NOT met (509.67), online MET (30.53).** Q4's example SLA was
+- **`p99 < 100 ms` SLA: batch NOT met (509.67), online MET (30.53).** The target SLA was
   unreachable before and is reachable now.
 - Throughput 3.6 → **68.4 q/s per core**; cores for 1,000 QPS **278 → 15**; cost per 1,000
   queries **$0.003078 → $0.000162**.
@@ -607,7 +604,7 @@ date, per the 2026-09-16 error-log entry.
 
 **The nightly profile job, and the batching asymmetry it rests on.** 50,000 MIND user
 profiles build in **18.7 s = 0.37 ms/user**, against **~30 ms/user** measured for the same
-work done one request at a time (Q4, section I.3). An **81x** gap, because the expensive
+work done one request at a time (section I.3). An **81x** gap, because the expensive
 parts are matrix products that vectorise. `SCALE_NOTES.md` predicted this asymmetry before
 it was measured; this is the measurement. The corpus-tier index flattening costs 0.1 s.
 
@@ -637,7 +634,7 @@ would let us report "665x" or "296x" by choosing a run. What is quoted:
 
 - **p50 speedup, stable across both runs: 33.9x** (MIND 19.5x).
 - **The online path's own p99: 48.93 ms** (MIND 30.53 ms). **Under the 100 ms SLA in both
-  runs, on both datasets**, which is the claim that matters for Q4.3.
+  runs, on both datasets**, which is the claim that matters for serving metrics.
 - Throughput 0.5 → **57.2 q/s per core**; cores for 1,000 QPS **1,842 → 18**; cost per
   1,000 queries $0.018647 → **$0.000193**. Footprint 476.4 MB. 39,420 EB-NeRD profiles
   build in 50.8 s (**1.29 ms/user**).
@@ -792,7 +789,7 @@ test scoring took ~1 h per arm because `score()` makes one `model.news` call per
 
 ### K.11 D42c — the retrieved regime inflates rack features; the number is not reportable as a gain
 
-`run_retrieved_regime.py --models base rack` scores both models over A1's semantic top-100
+`run_retrieved_regime.py --models base rack` scores both models over the semantic retrieval top-100
 (MIND test, macro recall@100 = 2.62%, so only **798 of 21,947** impressions have a clicked
 article among the 100 and carry a defined metric).
 

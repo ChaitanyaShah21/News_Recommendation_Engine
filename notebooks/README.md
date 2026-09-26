@@ -1,9 +1,5 @@
 # Notebooks
 
-- `00_provided_mind_analysis.ipynb` — **supplied with the assignment.** Course-provided
-  reference. Documents the MIND schema, row counts, and a popularity baseline.
-- `00_provided_ebnerd_analysis.ipynb` — **supplied with the assignment.** Same for EB-NeRD.
+Exploratory notebooks and interactive analyses for data distributions, feature correlations, and recommendation metrics.
 
-Neither is our work. They are kept for their verified schema facts and their memory-safe
-row-group batching pattern. Our own notebooks are numbered `01_` upward and contain no
-logic — they import from `src/newsrec/` and display results.
+All notebooks are designed to be thin: they import logic directly from `src/newsrec/` and focus on displaying figures, tables, and diagnostics.

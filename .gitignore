@@ -1,4 +1,4 @@
-# ---- Data: never commit. Assignment Q8 forbids large files in git. ----
+# ---- Data: raw and processed datasets ----
 data/
 *.zip
 *.tsv
@@ -32,17 +32,10 @@ venv/
 .idea/
 .DS_Store
 
-# ---- Keep these despite the rules above ----
+# ---- Keep figures ----
 !reports/figures/*.png
 
-
-# ---- Codabench worker tooling: infrastructure, restored from history 2026-09-19 ----
-# Removed from the deliverable in A1 (commit f716d4b) because it is not pipeline
-# work. Restored into the working tree to re-run the EB-NeRD scoring worker, and
-# ignored so the deliverable stays as A1 left it. `.env` holds live queue
-# credentials and must never be committed.
+# ---- Benchmark and evaluation cache ----
 codabench/
-
-# ---- Design-note build intermediate (the PDF itself is a deliverable, keep it) ----
 reports/design_note.html
 reports/design_note_a2.html

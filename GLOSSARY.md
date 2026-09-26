@@ -51,7 +51,7 @@ might interest you. Re-ranking is being handed 11 books and putting them in the 
 
 **Technical:** *Retrieval* (also *candidate generation*) searches the entire article corpus
 and returns top-K, measured by recall@K. *Re-ranking* scores a supplied candidate list and
-orders it, measured by ranking metrics. **This assignment needs both** — questions Q2/Q3
+orders it, measured by ranking metrics. **The recommendation pipeline uses both** — candidate generation
 grade retrieval, the leaderboards grade re-ranking.
 
 ---
@@ -703,7 +703,7 @@ averaging over fabricated zeros.
 
 ---
 
-## Assignment 2 — Phase A1 (data scale-up)
+## Stage 2: Data Scale-Up
 
 ### User-level sample
 **Plain:** To survey a school, pick whole classrooms, not random pages torn out of random
@@ -741,7 +741,7 @@ uncertainty you need four times as many spoonfuls, not twice as many.
 impressions (×25) narrows it about ×5. This is why 15% of users (×3 the data) would only
 narrow the interval by about ×1.7 (√3) over 5%.
 
-## Assignment 2 — Phase A2 (behavioural features)
+## Stage 2: Behavioural Features
 
 ### Exponential decay / half-life
 **Plain:** yesterday's lunch tells you more than last month's. Older evidence counts

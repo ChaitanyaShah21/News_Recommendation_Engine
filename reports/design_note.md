@@ -19,7 +19,7 @@ Every choice below was made against a measured number, with alternatives recorde
 |---|---|---|
 | DataFrame engine (D5) | Polars | pandas is eager and single-threaded; EB-NeRD-large is 13.5 M rows on 7.7 GB RAM. `scan_parquet` + streaming does in **1 s / 1.03 GB** what an eager pass cannot do at all |
 | Inverted index (D14) | own `scipy.sparse` CSR/CSC | `rank_bm25`: **216× slower per query** (2,183.84 ms vs 10.10 ms p50), **30.3 h vs 8.4 min** for a val run. `bm25s` is fast but Q2.1 grades *building* an index |
-| ANN index (D21) | exact brute force | FAISS costs recall — the metric Q3 reports — for speed we do not need; measured at **1.73 ms/query**, *faster* than the sparse index |
+| ANN index (D21) | exact brute force | FAISS costs recall — our target retrieval metric — for speed we do not need; measured at **1.73 ms/query**, *faster* than the sparse index |
 | Embedding model (D20) | `paraphrase-multilingual-MiniLM-L12-v2` | `distiluse-…-v1` has **no Danish** in its 13-language list and would have returned well-formed nonsense. Naive install pulls **2,894 MB** (2,238 MB unused CUDA) vs **390 MB** CPU-only |
 | Vector storage (D22) | separate `embeddings.parquet`, vector beside its own id | a column on `articles` would be recomputed each rebuild: **2.81 s → ~13 min, a 280× regression**. A bare `.npy` + id list can silently drift out of alignment |
 | Candidate pool (D19) | whole corpus **and** in-circulation | reporting only one hides that EB-NeRD's 2.45 % → 7.27 % gain is mostly the pool shrinking |
@@ -175,7 +175,7 @@ because that failure is specific to whole-corpus nearest-neighbour search, where
 clusters win, and cannot arise on a 25-candidate list. It is also worse alone yet adds
 +0.0056 when fused: complementary errors, not smaller ones.
 
-**Anti-gaming (Q9): one leaked feature outvalues the entire honest system.** Identical
+**Leakage Quantification: one leaked feature outvalues the entire honest system.** Identical
 algorithm, counting window moved from training to the evaluated window:
 
 | arm | MIND | EB-NeRD |
@@ -208,7 +208,7 @@ re-tune was chosen entirely on val and then submitted:
 
 **A predicted +0.0151 delivered +0.0154 — agreement to 0.0003.** The absolute levels
 differ by ~0.030 (val is an easier, earlier window), but the *delta* transfers almost
-exactly. That is the property that matters: it means Q4's harness can rank design changes
+exactly. That is the property that matters: it means the offline evaluation harness can rank design changes
 offline, so every tuning decision above was made without spending a submission or reading
 the leaderboard as a signal. An evaluation harness whose deltas transfer is worth more
 than one whose absolute numbers happen to match.

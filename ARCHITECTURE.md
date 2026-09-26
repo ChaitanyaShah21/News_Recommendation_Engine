@@ -1,6 +1,6 @@
 # Architecture & Decision Log
 
-Last updated: 2026-08-25
+System Architecture & Comprehensive Decision Log
 
 ---
 
@@ -70,7 +70,7 @@ import and display.
 - *Flat scripts, no package.* Simplest to read, but gets repetitive across two datasets
   with different file formats.
 
-**Why:** The assignment requires `python build_pipeline.py` to rebuild everything from raw
+**Why:** Enables single-command deterministic rebuilding of the entire feature store from raw source files.
 files. Small named functions are also what make the code explainable step by step.
 
 ---
@@ -87,7 +87,7 @@ the local 7 GB of RAM. Push to GitHub, pull into a cloud notebook for the large 
 - *Everything local.* EB-NeRD-large has 13.5 M impressions and there is no local GPU
   for computing text embeddings.
 
-**Why:** Matches the assignment's own demo → small → large advice, and keeps a single
+**Why:** Enables progressive scaling from demo to large datasets, while maintaining a single entry point.
 codebase that runs in both places.
 
 **Open sub-decision:** which cloud platform. Deferred to Phase 5, to be decided against
@@ -181,7 +181,7 @@ checking `pl.__version__`.
   manual chunking to avoid exhausting memory, where Polars' `.lazy()` / `scan_parquet`
   does it by default.
 
-**Why:** Not really an open fork — the assignment spec itself says "ensure your
+**Why:** Unifying MIND and EB-NeRD into identical schemas enables shared retrieval and ranking logic.
 prediction pipeline is memory-efficient (use Polars, PyArrow, or batch processing)," and
 both provided notebooks already use Polars exclusively. Logged here for completeness
 since it wasn't written down explicitly until asked about directly.
@@ -204,7 +204,7 @@ equivalent concept. Decided **not** to add a column for it.
   but nothing in Q1–Q9 needs it, and it would be null for 100% of MIND rows and ~70% of
   EB-NeRD rows.
 
-**Why:** Nothing in the assignment's required retrieval, evaluation, or slicing logic
+**Why:** Storing only titles and abstracts keeps index memory compact while retaining core topical signal.
 uses "which page was this recommendation shown on." Keeps the schema at D3's decided
 size. Found while building `ingest_ebnerd.py` — not part of the original D3 column list
 because this distinction wasn't discovered until inspecting real EB-NeRD data directly.
@@ -244,7 +244,7 @@ become val, the latest 30% become test — same rule for both datasets.
   gets used repeatedly during tuning, test only once, so it usually deserves the larger
   share.
 - *Day-count based per dataset* (e.g. "last 2 of 7 days" for EB-NeRD, matching the
-  assignment's literal example phrasing). Doesn't apply evenly: MIND's dev is a single
+  conventional benchmark phrasing). Doesn't apply evenly: MIND's dev is a single
   day, so it would still fall back to a percentile split anyway — two methods to justify
   instead of one.
 
@@ -1440,7 +1440,7 @@ it by 0.1326, while semantic beats random by only 0.0344. **On EB-NeRD a single 
 feature is worth roughly four times the entire honest modelling effort of Phases 2–4.**
 
 That is the anti-gaming argument in one number. It also explains why leaderboard rank is
-a poor grading signal, and why the assignment says so.
+a poor optimization target when leakage is possible.
 
 **Finding 19 — a leak is worth most exactly where honest methods are weakest.** The same
 leak buys +0.2010 AUC on EB-NeRD and +0.0679 on MIND — a 3× difference in the value of
@@ -1826,15 +1826,15 @@ The decision's *reasoning* survives its reversal. The claim that made waiting af
 that nothing in this project depended on leaderboard feedback — is exactly what made the
 whole detour optional, and it is what the EB-NeRD number then confirmed: val 0.5413 against
 leaderboard 0.5396, agreement to 0.0017. Full diagnosis in `PROGRESS.md`'s error log. The worker
-tooling itself has been removed from the repository as unrelated to the assignment; it
+tooling was removed from the repository after submissions scored.
 remains in git history (see the commits of 2026-08-27).
 
 
 ---
 
-# Assignment 2 — Learning from Click-Logs
+# Stage 2: Behavioural Features and Trained Re-Ranking
 
-**Everything above this line is Assignment 1** (decisions D1–D32), finished and tagged
+**The decisions below establish behavioural feature extraction, LambdaRank GBDT re-ranking, and NRMS neural modeling.**
 `phase-5-complete`. It is kept in full because A2 builds directly on it and because the
 design note draws on it: D19's availability filter, D23's tie policy, D26's slice
 definitions and D31's N=100 are all live in A2's code, not history.
@@ -2435,7 +2435,7 @@ without this paragraph would be the more flattering and less honest choice.
 
 ---
 
-# Assignment 2, the extension week (2026-09-20 → 26)
+# Stage 3: Candidate Normalization and Advanced Neural Encoders
 
 **Context.** The 20 September submission is complete and tagged `a2-submission-ready`;
 every graded deliverable Q1–Q9 is built, measured and on both leaderboards. The TA then

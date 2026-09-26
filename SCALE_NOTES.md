@@ -310,7 +310,7 @@ work to the wrong side of a boundary crossed 50,000 times".
 
 ---
 
-# Assignment 2
+# Stage 2 Scaling Analysis
 
 ## Phase A1 — ingesting `ebnerd_large` (2026-09-15)
 
