@@ -435,9 +435,9 @@ EB-NeRD transfers both **level** (0.0008) and **delta** (+0.0224 vs +0.0202). MI
 clearly but delivers only **62% of the offline delta** (+0.0138 of +0.0223), and its level is
 off by 0.0048 - the same direction and size as I.5's miss. The ~0.640 forecast made before
 submitting was too high for MIND and right for EB-NeRD (~0.760). A plausible cause, not
-tested: MIND's local test split is 21,947 impressions from one day, the leaderboard is 2.37M
+tested: MIND's local test split is 21,947 impressions from the last 12 hours of 15 Nov 2019 (verified), the leaderboard is 2.37M
 over a week, so the local estimate of any MIND delta carries more week-to-week drift than its
-bootstrap CI (which only resamples impressions within that day) can show.
+bootstrap CI (which only resamples impressions within those 12 hours) can show.
 
 ---
 
