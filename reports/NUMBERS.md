@@ -414,6 +414,31 @@ datasets (≤0.004); the offline *delta* transferred only on EB-NeRD. Consistent
 slice analysis, which already showed MIND's aggregate gain hiding a −0.0127 loss on
 head-exposure impressions.
 
+### I.6 Codabench after D42, the rack features (2026-09-26)
+
+Resubmitted with `lgbm_{ds}_rack.txt` (the D42a arm). Screenshots:
+`reports/figures/{mind,ebnerd}_rack.png`. The EB-NeRD score came from a **self-hosted
+worker** (Chaitanya's Codespace, the organisers' queue credentials, upstream's worker code)
+because the competition's own workers are retired - see D32.
+
+| | before (I.5) | **after D42** | leaderboard delta | offline test AUC | offline delta | offline vs leaderboard |
+|---|---|---|---|---|---|---|
+| MIND (comp. 13967) | 0.6181, rank 69 | **0.6319, rank 63** (sub 945225) | **+0.0138** | 0.6367 | +0.0223 | 0.0048 apart |
+| EB-NeRD (comp. 2469) | 0.7397, rank 77 | **0.7621, rank 74** (sub 945302) | **+0.0224** | 0.7629 | +0.0202 | **0.0008 apart** |
+
+Other columns as displayed (assumed MRR, nDCG@5, nDCG@10 in the leaderboards' order):
+MIND 0.3075 / 0.3322 / 0.391 against offline 0.3411 / 0.324 / 0.384; EB-NeRD 0.548 / 0.6181 /
+0.6487 against offline 0.5453 / 0.6137 / 0.646.
+
+**Reading.** The pattern of I.5 repeats, now with a second data point per dataset.
+EB-NeRD transfers both **level** (0.0008) and **delta** (+0.0224 vs +0.0202). MIND gains
+clearly but delivers only **62% of the offline delta** (+0.0138 of +0.0223), and its level is
+off by 0.0048 - the same direction and size as I.5's miss. The ~0.640 forecast made before
+submitting was too high for MIND and right for EB-NeRD (~0.760). A plausible cause, not
+tested: MIND's local test split is 21,947 impressions from one day, the leaderboard is 2.37M
+over a week, so the local estimate of any MIND delta carries more week-to-week drift than its
+bootstrap CI (which only resamples impressions within that day) can show.
+
 ---
 
 ## J. How to re-measure
