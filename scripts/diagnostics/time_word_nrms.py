@@ -2,8 +2,8 @@
 
 D39 pre-committed to replacing its estimate with a timing before launching, and
 this is that timing. Both encoders are run over the SAME impressions, so the
-RATIO is the answer even on a busy machine — the 2026-09-16 error-log entry
-records absolute milliseconds here moving 4.7x between dates while ratios held.
+RATIO is the answer even on a busy machine — on 2026-09-16 absolute
+milliseconds here moved 4.7x between dates while ratios held.
 
 Calibration: the sentence-level figure should reproduce D41's independently
 recorded ~9 min/epoch at 60,000 impressions. If it does not, distrust the

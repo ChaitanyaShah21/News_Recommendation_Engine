@@ -14,7 +14,7 @@ WebKit that mis-renders the tables this note relies on.
 
 Page count is read from the PDF's own page tree rather than estimated from word
 count -- an estimate is exactly the kind of number this project has learned not to
-trust (see PROGRESS.md on three wrong runtime estimates in a row).
+trust (three runtime estimates in a row were wrong).
 """
 import re
 import shutil

@@ -4,8 +4,8 @@ A passing test suite proves the code does what the tests check. Mutation testing
 asks the harder question — would these tests NOTICE if the code were wrong? A
 mutation that SURVIVES is a gap in the tests, not a bug in the code.
 
-`__pycache__` is cleared between mutations. The 2026-08-25 error-log entry
-records a run where a stale bytecode cache made mutations look survived, because
+`__pycache__` is cleared between mutations. A run on 2026-08-25 showed a stale
+bytecode cache making mutations look survived, because
 restoring a file with `cp` did not make its mtime look newer to the import cache.
 The failure direction is benign — a stale cache reports a FALSE survivor, which
 gets investigated — but it wastes an hour.

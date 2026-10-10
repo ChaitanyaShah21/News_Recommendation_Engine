@@ -91,7 +91,7 @@ def main() -> int:
     )
     # Guard against the summary silently under-reporting: a missing run shows up
     # as absent rows in the final table, which is exactly how four EB-NeRD rows
-    # went missing in Q2 (see PROGRESS.md's error log).
+    # went missing in Q2.
     print(f"reading {len(paths)} per-run CSVs:")
     for p in paths:
         print(f"  {p.name}")

@@ -3,7 +3,7 @@
 
 Reads raw-data locations from configs/mind.yaml and configs/ebnerd.yaml,
 checks the raw files are actually present (printing manual download
-instructions and exiting cleanly if not - MIND is gated, see PROGRESS.md),
+instructions and exiting cleanly if not - MIND downloads are gated),
 then builds the feature store into data/processed/.
 
 Usage:

@@ -12,9 +12,9 @@ against this repository.
 
 Writes nothing anywhere: pointing it at a frozen repo cannot modify it.
 
-Latency here is machine-state-dependent - see PROGRESS.md's 2026-09-16 error-log
-entry, where the same code on identical data ran ~2.4x slower than three weeks
-earlier. Always record the date beside the number, and prefer ratios to absolutes.
+Latency here is machine-state-dependent - on 2026-09-16 the same code on identical
+data ran ~2.4x slower than three weeks earlier (reports/NUMBERS.md section C).
+Always record the date beside the number, and prefer ratios to absolutes.
 """
 from __future__ import annotations
 import argparse, gc, resource, statistics, sys, time

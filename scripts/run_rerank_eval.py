@@ -180,7 +180,7 @@ def main() -> int:
     summarise(frame)
 
     REPORTS.mkdir(exist_ok=True)
-    # Every varying input goes in the filename - the Q2 error-log entry where
+    # Every varying input goes in the filename - during Q2,
     # `--datasets mind` silently overwrote `--datasets ebnerd`'s results.
     name = f"rerank_{'-'.join(args.datasets)}_{args.split}_n{args.n_recent}.parquet"
     frame.write_parquet(REPORTS / name)

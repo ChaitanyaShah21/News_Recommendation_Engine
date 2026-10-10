@@ -228,7 +228,7 @@ def main() -> int:
 
     out_dir = REPO_ROOT / "reports"
     out_dir.mkdir(exist_ok=True)
-    # Every varying input in the filename - the Q2 error-log entry where an
+    # Every varying input in the filename - during Q2 an
     # omitted dataset name silently overwrote a previous run's results.
     pool = "available" if args.availability else "wholecorpus"
     out_path = out_dir / (

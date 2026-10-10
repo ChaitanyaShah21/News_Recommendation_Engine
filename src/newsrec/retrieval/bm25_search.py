@@ -152,8 +152,8 @@ def build_queries(
     for article_ids in histories:
         # `or []` guards the null case as well as the empty-list case: a
         # cold-start user is legitimately empty, and `.fill_null([])` upstream
-        # is one refactor away from being removed (it already caught us once -
-        # see PROGRESS.md's null-propagation entry).
+        # is one refactor away from being removed (it already caught us once,
+        # when a null history propagated through).
         tail = (article_ids or [])[-n_recent:]
         rows = [row_of_article[a] for a in tail if a in row_of_article]
         # unique: the same article clicked twice must not weigh its title twice

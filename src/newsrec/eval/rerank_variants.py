@@ -20,8 +20,8 @@ than at "try things until the number moves":
 2. **N, the history window** (`n_recent` throughout). D12 chose N = 10 for
    *retrieval*, where a long query causes topic drift. Re-ranking is a different
    job - the candidate list is already topically plausible, so more history may
-   be signal rather than noise. `PROGRESS.md` has listed this sweep as "never
-   run" since Phase 3.
+   be signal rather than noise. This sweep had been listed as "never run"
+   since Phase 3.
 
 3. **Score fusion** (`normalise_per_impression`, `blend`). BM25, semantic and
    popularity fail differently: BM25 needs term overlap, semantic is blind to

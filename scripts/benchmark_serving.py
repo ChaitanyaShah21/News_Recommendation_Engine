@@ -82,7 +82,7 @@ def main() -> None:
     ap.add_argument("--online", action="store_true",
                     help="D44: also measure the NumPy request path, in the same process "
                          "and over the same requests. Both paths are timed in one run on "
-                         "purpose - the 2026-09-16 error-log entry records absolute "
+                         "purpose - the 2026-09-16 measurement (NUMBERS.md section C) recorded absolute "
                          "milliseconds on this machine moving by up to 4.7x between dates, "
                          "so only a side-by-side ratio is worth quoting.")
     args = ap.parse_args()

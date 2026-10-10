@@ -387,8 +387,8 @@ because the two article files were *checked* frame-equal first.
 **A slow measurement that was a machine-state artefact, not a code fact.** Profiling one
 leaderboard chunk showed `searchsorted` taking 0.7 s per call over the 170M-key array;
 re-measuring the same call on a quiet machine took **10 ms**. The difference was memory
-pressure (the run was at 10.6 GB with swap active), not the array. Recorded because A1's
-error log already contains one wrong conclusion drawn from a contended measurement.
+pressure (the run was at 10.6 GB with swap active), not the array. Recorded because A1
+already drew one wrong conclusion from a contended measurement.
 
 ---
 

@@ -1,7 +1,7 @@
 """Temporal train/val/test split (Q1.3).
 
 Neither MIND-small nor EB-NeRD-demo provides three labeled partitions -
-each only gives train + dev/validation (see PROGRESS.md, D7/D8 in
+each only gives train + dev/validation (see D7/D8 in
 ARCHITECTURE.md). Train is used untouched; dev/validation gets carved into
 val + test by a row-count-based timestamp cutoff: the earliest 70% of that
 partition's rows (by time, not arbitrary order) become val, the latest 30%

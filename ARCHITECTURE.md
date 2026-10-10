@@ -1075,7 +1075,7 @@ to write without the measurement.
 ### D25 — Beyond-accuracy measured on retrieval output, with both diversity bases reported
 **Date:** 2026-08-25 · **Decided by:** Chaitanya
 
-Two coupled forks, flagged in `PROGRESS.md` two sessions before they were reached.
+Two coupled forks, flagged two sessions before they were reached.
 
 **Fork A — which output do these metrics describe?** Beyond-accuracy describes a *system's
 own* output. In re-ranking the platform chose the items and we only reordered them, and
@@ -1825,9 +1825,8 @@ own source on the runtime upstream declares (Python 3.13) works, and scored subm
 The decision's *reasoning* survives its reversal. The claim that made waiting affordable —
 that nothing in this project depended on leaderboard feedback — is exactly what made the
 whole detour optional, and it is what the EB-NeRD number then confirmed: val 0.5413 against
-leaderboard 0.5396, agreement to 0.0017. Full diagnosis in `PROGRESS.md`'s error log. The worker
-tooling was removed from the repository after submissions scored.
-remains in git history (see the commits of 2026-08-27).
+leaderboard 0.5396, agreement to 0.0017. The worker tooling was removed from the repository
+after submissions scored; it remains in git history (see the commits of 2026-08-27).
 
 
 ---
@@ -1886,7 +1885,7 @@ rather than a comparison of two unrelated systems.
 ## Decision log — A2
 
 _(D33 onward is written as each decision is taken. Nothing decided yet beyond the four
-planning-stage choices recorded in `PROGRESS.md`: clone-forward repo layout, NRMS
+planning-stage choices: clone-forward repo layout, NRMS
 reimplemented in PyTorch on CPU, EB-NeRD subsampled from `ebnerd_large`, and reduced
 targeted teaching depth.)_
 
@@ -2637,8 +2636,8 @@ attends to slot 0 — and verified to produce no NaN. The existing 5 NRMS tests 
 unchanged, which is the check that the sentence-level path was not disturbed.
 
 **GloVe download.** 862,182,753 bytes from the HuggingFace mirror, verified against the
-server's `Content-Length` **before** being used, and the archive opened. This is the
-2026-08-21 error-log entry being applied rather than re-learned: a `wget` of
+server's `Content-Length` **before** being used, and the archive opened. This is a
+lesson from 2026-08-21 being applied rather than re-learned: a `wget` of
 `ebnerd_demo.zip` exited 0 having silently dropped the last 311 KB, which is precisely
 where a zip's central directory lives.
 
@@ -2732,9 +2731,9 @@ comparison, the code is dataset- and scale-agnostic and the upload is 380 MB.
 
 **Sequencing, which is what actually resolves the tension:** the CPU-light deliverables
 (feature rebuild, the D42a retrain, the D44 serving benchmark) run first and take a couple
-of hours; the serving benchmark in particular **needs a quiet machine**, because the
-2026-09-16 error-log entry records this laptop's absolute latencies moving 4.7x under
-contention. Word-level NRMS is launched last, overnight, when nothing else wants the cores.
+of hours; the serving benchmark in particular **needs a quiet machine**, because on
+2026-09-16 this laptop's absolute latencies were measured moving 4.7x under
+contention (reports/NUMBERS.md section C). Word-level NRMS is launched last, overnight, when nothing else wants the cores.
 
 ### D42b — outcome: the two slices A2 was losing on are the two the fix repairs
 
@@ -2853,7 +2852,7 @@ Had only one been taken, in any of the three machine states, the conclusion woul
 wrong in a different direction each time: run 1 would have overstated D44, run 2 would have
 overstated the batch tail, run 3 would have understated the system by blaming D44's path
 for a cold-cache stage-1 cost. On this machine a latency measured once is not a measurement
-— the 2026-09-16 error-log entry, generalised.
+— the 2026-09-16 latency lesson (reports/NUMBERS.md section C), generalised.
 
 ### D42c — a limitation of rack features that D37's retrieved regime makes acute
 

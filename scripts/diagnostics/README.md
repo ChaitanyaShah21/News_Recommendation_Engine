@@ -15,6 +15,6 @@ command; a command that no longer exists does not satisfy that.
 | `verify_rebuild.py` | proof the D42 rebuild changed no base column | NUMBERS K.3 |
 | `time_word_nrms.py` | word-level vs sentence-level training cost | NUMBERS K.4, D43a |
 | `profile_build_rows.py` | where the batch feature path spends its time | NUMBERS K.5, D44/D44a |
-| `mutate.py` | mutation testing harness (clears `__pycache__`, per the 2026-08-25 error-log entry) | D42's "13 of 13 caught" |
+| `mutate.py` | mutation testing harness (clears `__pycache__` between mutations; see its docstring) | D42's "13 of 13 caught" |
 
 All are read-only with respect to the feature store and write nothing to `reports/`.

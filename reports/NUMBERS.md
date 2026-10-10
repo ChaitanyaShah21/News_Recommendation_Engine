@@ -74,8 +74,7 @@ One multilingual model covers English (MIND) and Danish (EB-NeRD).
 > run the numbers are stable — two independent 300-query passes agreed to within 0.5 ms,
 > and two separate runs the same day agreed to within ~5% (BM25 p50 14.99–16.03 ms), so
 > differences under about a tenth are noise, not signal.
-> **Quote the ratios, which held; treat the absolutes as dated.** See PROGRESS.md's
-> error log, 2026-09-16.
+> **Quote the ratios, which held; treat the absolutes as dated.**
 
 ### Per-query retrieval latency, batch size 1, top-200 (the serving number)
 
@@ -584,7 +583,7 @@ selected — is the same, and the test result above is the one that ships.
 
 Both paths timed **in the same process over the same 291 requests**, K = 100, single
 request at a time. The ratio is the quotable figure; absolute milliseconds carry their
-date, per the 2026-09-16 error-log entry.
+date, per section C.
 
 **MIND (30 features, 291 requests), latency in ms:**
 
@@ -616,8 +615,8 @@ articles.
 **EB-NeRD (34 features, 300 requests), and a measurement that had to be re-run.**
 
 The first EB-NeRD run reported a batch p99 of 22,397.72 ms, implying a 665x p99 speedup.
-That was not reported. It was re-run unchanged as a control on a quiet machine, per the
-2026-09-16 error-log entry:
+That was not reported. It was re-run unchanged as a control on a quiet machine, per
+section C:
 
 | | run 1 | run 2 (control) |
 |---|---|---|
@@ -721,8 +720,8 @@ reset to zero (`pswpin`/`pswpout` both 0). Runs 1 and 2 were on a VM up for ~1 d
 
 **Method note.** Three runs were taken because the first produced a number too good to
 report (a 665x p99 ratio). Had only one been taken — in any of the three states — the
-conclusion drawn would have been wrong in a different direction each time. This is the
-2026-09-16 error-log entry generalising: on this machine, a latency measured once is not a
+conclusion drawn would have been wrong in a different direction each time. This is
+section C's 2026-09-16 finding generalising: on this machine, a latency measured once is not a
 measurement.
 
 ### K.10 D43 word-level NRMS — completed 2026-09-21, 20.2 h
